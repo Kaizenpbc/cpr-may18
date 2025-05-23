@@ -11,7 +11,7 @@ import {
   CircularProgress,
   Link
 } from '@mui/material'
-import useAuth from '../contexts/AuthContext'
+import { useAuth } from '../contexts/AuthContext'
 
 console.log('Login.tsx - Component loading');
 

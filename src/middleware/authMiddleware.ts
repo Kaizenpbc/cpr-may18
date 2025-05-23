@@ -1,6 +1,7 @@
 import type { Request, Response, NextFunction } from 'express';
 import { verifyAccessToken, verifyRefreshToken, generateTokens } from '../utils/jwtUtils';
 import { extractTokenFromHeader } from '../utils/jwtUtils';
+import pool from '../config/database';
 
 declare global {
   namespace Express {
@@ -34,7 +35,24 @@ export const authenticateToken = async (req: Request, res: Response, next: NextF
 
     try {
       const payload = verifyRefreshToken(refreshToken);
-      const tokens = generateTokens(payload);
+      
+      // Fetch fresh user data from database to get current role
+      const result = await pool.query(
+        'SELECT * FROM users WHERE id = $1',
+        [payload.userId]
+      );
+
+      if (result.rows.length === 0) {
+        return res.status(401).json({ success: false, message: 'User not found' });
+      }
+
+      const user = result.rows[0];
+      
+      const tokens = generateTokens({
+        userId: user.id,
+        username: user.username,
+        role: user.role
+      });
       
       // Set new tokens
       res.cookie('refreshToken', tokens.refreshToken, {
@@ -45,9 +63,14 @@ export const authenticateToken = async (req: Request, res: Response, next: NextF
       });
       
       res.setHeader('Authorization', `Bearer ${tokens.accessToken}`);
-      req.user = payload;
+      req.user = {
+        userId: user.id,
+        username: user.username,
+        role: user.role
+      };
       next();
     } catch (error) {
+      console.error('Auth middleware refresh error:', error);
       return res.status(401).json({ success: false, message: 'Invalid refresh token' });
     }
   }

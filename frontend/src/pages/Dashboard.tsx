@@ -23,8 +23,8 @@ import {
   AssignmentTurnedIn as AttendanceIcon,
 } from '@mui/icons-material';
 import type { Class, Availability, ApiResponse } from '../types/api';
-import api from '../api';
-import useAuth from '../contexts/AuthContext';
+import { api } from '../services/api';
+import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import { fetchDashboardData, fetchInstructorAvailability, fetchSchedule } from '../services/api';
 

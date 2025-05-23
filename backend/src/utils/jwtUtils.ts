@@ -10,10 +10,12 @@ const REFRESH_TOKEN_EXPIRY = '7d';
 interface TokenPayload {
   userId: string;
   username: string;
+  role?: string;
+  organizationId?: number;
 }
 
 export const generateTokens = (payload: TokenPayload) => {
-  console.log('[Debug] jwtUtils - Generating new tokens for user:', payload.username);
+  console.log('[Debug] jwtUtils - Generating new tokens for user:', payload.username, 'role:', payload.role);
   const accessToken = jwt.sign(payload, ACCESS_TOKEN_SECRET, { expiresIn: ACCESS_TOKEN_EXPIRY });
   const refreshToken = jwt.sign(payload, REFRESH_TOKEN_SECRET, { expiresIn: REFRESH_TOKEN_EXPIRY });
   

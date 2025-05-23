@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Outlet, useNavigate, useLocation } from 'react-router-dom';
+import { Outlet, useNavigate, useLocation, Link as RouterLink } from 'react-router-dom';
 import {
   AppBar,
   Box,
@@ -15,6 +15,8 @@ import {
   useTheme,
   useMediaQuery,
   ListItemButton,
+  Button,
+  Divider,
 } from '@mui/material';
 import {
   Menu as MenuIcon,
@@ -23,8 +25,11 @@ import {
   Class as ClassIcon,
   AssignmentTurnedIn as AttendanceIcon,
   Logout as LogoutIcon,
+  Schedule as ScheduleIcon,
+  Person as PersonIcon,
+  AdminPanelSettings as AdminIcon,
 } from '@mui/icons-material';
-import useAuth from '../contexts/AuthContext';
+import { useAuth } from '../contexts/AuthContext';
 
 const drawerWidth = 240;
 
@@ -38,6 +43,14 @@ const Layout: React.FC = () => {
 
   const handleDrawerToggle = () => {
     setMobileOpen(!mobileOpen);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await logout();
+    } catch (error) {
+      console.error('Failed to logout:', error);
+    }
   };
 
   const menuItems = [
@@ -54,6 +67,7 @@ const Layout: React.FC = () => {
           CPR Training
         </Typography>
       </Toolbar>
+      <Divider />
       <List>
         {menuItems.map((item) => (
           <ListItemButton
@@ -87,21 +101,23 @@ const Layout: React.FC = () => {
             />
           </ListItemButton>
         ))}
-        <ListItemButton
-          onClick={logout}
-          sx={{
-            marginTop: 2,
-            color: theme.palette.error.main,
-            '&:hover': {
-              backgroundColor: theme.palette.error.main + '20',
-            },
-          }}
-        >
-          <ListItemIcon sx={{ color: 'inherit' }}>
+        {user?.role === 'admin' && (
+          <ListItem button component={RouterLink} to="/admin">
+            <ListItemIcon>
+              <AdminIcon />
+            </ListItemIcon>
+            <ListItemText primary="Course Admin" />
+          </ListItem>
+        )}
+      </List>
+      <Divider />
+      <List>
+        <ListItem button onClick={handleLogout}>
+          <ListItemIcon>
             <LogoutIcon />
           </ListItemIcon>
           <ListItemText primary="Logout" />
-        </ListItemButton>
+        </ListItem>
       </List>
     </div>
   );
@@ -126,9 +142,12 @@ const Layout: React.FC = () => {
           >
             <MenuIcon />
           </IconButton>
-          <Typography variant="h6" noWrap component="div">
+          <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1 }}>
             {user?.full_name || 'Welcome'}
           </Typography>
+          <Button color="inherit" onClick={handleLogout}>
+            Logout
+          </Button>
         </Toolbar>
       </AppBar>
       <Box

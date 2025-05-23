@@ -1,6 +1,7 @@
 console.log('Initializing tokenService');
 
-const TOKEN_KEY = 'auth_token';
+const ACCESS_TOKEN_KEY = 'accessToken';
+const REFRESH_TOKEN_KEY = 'refreshToken';
 
 /**
  * Token service that handles access token storage and retrieval.
@@ -11,37 +12,79 @@ export const tokenService = {
      * Gets the current access token from localStorage.
      * @returns The current access token or null if not found
      */
-    getToken(): string | null {
-        return localStorage.getItem(TOKEN_KEY);
+    getAccessToken(): string | null {
+        return localStorage.getItem(ACCESS_TOKEN_KEY);
     },
 
     /**
      * Sets the access token in localStorage.
      * @param token - The access token to store
      */
-    setToken(token: string): void {
-        localStorage.setItem(TOKEN_KEY, token);
+    setAccessToken(token: string): void {
+        localStorage.setItem(ACCESS_TOKEN_KEY, token);
     },
 
     /**
-     * Clears the access token from localStorage.
+     * Gets the current refresh token from localStorage.
+     * @returns The current refresh token or null if not found
      */
-    clearToken(): void {
-        localStorage.removeItem(TOKEN_KEY);
+    getRefreshToken(): string | null {
+        return localStorage.getItem(REFRESH_TOKEN_KEY);
     },
 
     /**
-     * Gets the authorization header with the current token
+     * Sets the refresh token in localStorage.
+     * @param token - The refresh token to store
+     */
+    setRefreshToken(token: string): void {
+        localStorage.setItem(REFRESH_TOKEN_KEY, token);
+    },
+
+    /**
+     * Clears both access and refresh tokens from localStorage.
+     */
+    clearTokens(): void {
+        localStorage.removeItem(ACCESS_TOKEN_KEY);
+        localStorage.removeItem(REFRESH_TOKEN_KEY);
+        // Also clear any other auth-related storage
+        localStorage.clear();
+        // Force reload to clear any remaining state
+        window.location.href = '/login';
+    },
+
+    /**
+     * Checks if both access and refresh tokens exist in localStorage.
+     * @returns true if both tokens exist, false otherwise
+     */
+    hasTokens(): boolean {
+        return !!(localStorage.getItem(ACCESS_TOKEN_KEY) && localStorage.getItem(REFRESH_TOKEN_KEY));
+    },
+
+    /**
+     * Gets the authorization header with the current access token
      */
     getAuthHeader() {
-        const token = this.getToken();
+        const token = this.getAccessToken();
         console.log('[TRACE] Getting auth header - Token exists:', !!token);
         return token ? { Authorization: `Bearer ${token}` } : {};
     },
 
-    hasToken(): boolean {
-        return !!this.getToken();
+    /**
+     * Force clear all authentication and redirect to login
+     * Can be called from browser console: tokenService.forceLogout()
+     */
+    forceLogout(): void {
+        this.clearTokens();
+        // Clear all localStorage
+        localStorage.clear();
+        // Clear sessionStorage too
+        sessionStorage.clear();
+        // Force a hard refresh to login
+        window.location.href = '/login';
     }
 };
 
-console.log('TokenService initialized'); 
+console.log('TokenService initialized');
+
+// Make tokenService globally available for debugging
+(window as any).tokenService = tokenService; 

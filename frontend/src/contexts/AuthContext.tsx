@@ -14,6 +14,14 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+export const useAuth = () => {
+  const context = useContext(AuthContext);
+  if (!context) {
+    throw new Error('useAuth must be used within an AuthProvider');
+  }
+  return context;
+};
+
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
@@ -21,16 +29,25 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const checkAuth = async () => {
     try {
+      // Check if we have a token
+      const token = tokenService.getAccessToken();
+      if (!token) {
+        setLoading(false);
+        return;
+      }
+
       const userData = await authService.checkAuth();
       if (userData) {
         setUser(userData);
         setIsAuthenticated(true);
       } else {
+        tokenService.clearTokens();
         setUser(null);
         setIsAuthenticated(false);
       }
     } catch (error) {
       console.error('Error checking auth:', error);
+      tokenService.clearTokens();
       setUser(null);
       setIsAuthenticated(false);
     } finally {
@@ -44,7 +61,12 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const login = async (username: string, password: string) => {
     try {
-      const { user: userData } = await authService.login(username, password);
+      const { user: userData, accessToken } = await authService.login(username, password);
+      
+      if (accessToken) {
+        tokenService.setAccessToken(accessToken);
+      }
+      
       setUser(userData);
       setIsAuthenticated(true);
     } catch (error) {
@@ -56,10 +78,15 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const logout = async () => {
     try {
       await authService.logout();
+      tokenService.clearTokens();
       setUser(null);
       setIsAuthenticated(false);
     } catch (error) {
       console.error('Logout error:', error);
+      // Clear state even if logout API call fails
+      tokenService.clearTokens();
+      setUser(null);
+      setIsAuthenticated(false);
       throw error;
     }
   };
@@ -75,13 +102,3 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 };
-
-export function useAuth() {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-}
-
-export default useAuth;

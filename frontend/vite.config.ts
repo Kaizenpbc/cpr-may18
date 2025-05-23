@@ -7,6 +7,31 @@ console.log('Loading Vite config');
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
+  esbuild: {
+    loader: 'jsx',
+    include: /src\/.*\.[jt]sx?$/,
+    exclude: []
+  },
+  optimizeDeps: {
+    esbuildOptions: {
+      loader: {
+        '.js': 'jsx',
+      },
+    },
+    include: [
+      'react',
+      'react-dom',
+      'react-router-dom',
+      '@mui/material',
+      '@mui/icons-material',
+      '@emotion/react',
+      '@emotion/styled',
+      '@tanstack/react-query',
+      '@mui/x-date-pickers',
+      'date-fns'
+    ],
+    force: true
+  },
   root: path.resolve(__dirname),
   base: '/',
   server: {
@@ -18,7 +43,9 @@ export default defineConfig({
       host: 'localhost',
       port: 5173,
       clientPort: 5173,
-      timeout: 10000
+      timeout: 10000,
+      overlay: true,
+      path: 'hmr'
     }
   },
   build: {
@@ -34,20 +61,6 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src')
     },
     extensions: ['.js', '.jsx', '.ts', '.tsx']
-  },
-  optimizeDeps: {
-    include: [
-      'react',
-      'react-dom',
-      'react-router-dom',
-      '@mui/material',
-      '@mui/icons-material',
-      '@emotion/react',
-      '@emotion/styled',
-      '@tanstack/react-query',
-      '@mui/x-date-pickers',
-      'date-fns'
-    ]
   },
   clearScreen: false,
   logLevel: 'info'

@@ -1,4 +1,4 @@
-import api from './api';
+import { api } from './api';
 import { tokenService } from './tokenService';
 
 /**
@@ -17,17 +17,22 @@ export const authService = {
     try {
       console.log('[Debug] authService - Attempting login for user:', username);
       const response = await api.post('/api/v1/auth/login', { username, password });
-      const { accessToken, user } = response.data.data;
+      const { accessToken, refreshToken, user } = response.data.data;
       
-      // Store the token
+      // Store the tokens
       if (accessToken) {
         console.log('[Debug] authService - Received access token, storing');
-        tokenService.setToken(accessToken);
+        tokenService.setAccessToken(accessToken);
         // Ensure the token is set in the API instance
         api.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
       }
+
+      if (refreshToken) {
+        console.log('[Debug] authService - Received refresh token, storing');
+        tokenService.setRefreshToken(refreshToken);
+      }
       
-      return { user, accessToken };
+      return { user, accessToken, refreshToken };
     } catch (error) {
       console.error('[Debug] authService - Login error:', error);
       throw error;
@@ -49,16 +54,20 @@ export const authService = {
         email,
         password,
       });
-      const { accessToken, user } = response.data.data;
+      const { accessToken, refreshToken, user } = response.data.data;
       
-      // Store the token
+      // Store the tokens
       if (accessToken) {
-        tokenService.setToken(accessToken);
+        tokenService.setAccessToken(accessToken);
         // Ensure the token is set in the API instance
         api.defaults.headers.common['Authorization'] = `Bearer ${accessToken}`;
       }
+
+      if (refreshToken) {
+        tokenService.setRefreshToken(refreshToken);
+      }
       
-      return { user, accessToken };
+      return { user, accessToken, refreshToken };
     } catch (error) {
       throw error;
     }
@@ -70,17 +79,17 @@ export const authService = {
    */
   async logout() {
     try {
-      const token = tokenService.getToken();
+      const token = tokenService.getAccessToken();
       if (token) {
         await api.post('/api/v1/auth/logout');
       }
-      // Clear token from storage and API instance
-      tokenService.clearToken();
+      // Clear tokens from storage and API instance
+      tokenService.clearTokens();
       delete api.defaults.headers.common['Authorization'];
     } catch (error) {
       console.error('Logout error:', error);
       // Still clear tokens on error
-      tokenService.clearToken();
+      tokenService.clearTokens();
       delete api.defaults.headers.common['Authorization'];
     }
   },
@@ -91,7 +100,7 @@ export const authService = {
    */
   async checkAuth() {
     try {
-      const token = tokenService.getToken();
+      const token = tokenService.getAccessToken();
       if (!token) return null;
 
       // Ensure token is set in headers
@@ -100,7 +109,7 @@ export const authService = {
       const response = await api.get('/api/v1/auth/me');
       return response.data.data;
     } catch (error) {
-      tokenService.clearToken();
+      tokenService.clearTokens();
       delete api.defaults.headers.common['Authorization'];
       return null;
     }
@@ -111,7 +120,7 @@ export const authService = {
    * @returns The current access token or null if not authenticated
    */
   getAccessToken() {
-    return tokenService.getToken();
+    return tokenService.getAccessToken();
   },
 
   /**

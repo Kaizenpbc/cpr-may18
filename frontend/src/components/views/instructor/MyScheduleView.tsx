@@ -23,12 +23,11 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { DateCalendar } from '@mui/x-date-pickers/DateCalendar';
 import { PickersDay } from '@mui/x-date-pickers/PickersDay';
-import { ChevronLeft, ChevronRight } from '@mui/icons-material';
+import { ChevronLeft, ChevronRight, Refresh } from '@mui/icons-material';
 import type { Class, Availability, ApiResponse } from '../../../types/api';
-import api from '../../../api';
+import api from '../../../api/index';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
-import { DayCalendarProps } from '@mui/x-date-pickers/DayCalendar';
 
 interface ScheduleEntry {
     date: string;
@@ -57,6 +56,23 @@ const MyScheduleView: React.FC = () => {
         loadScheduleData();
     }, [isAuthenticated]);
 
+    // Add a refresh effect when the component is focused/visible
+    useEffect(() => {
+        const handleFocus = () => {
+            if (isAuthenticated) {
+                loadScheduleData();
+            }
+        };
+
+        window.addEventListener('focus', handleFocus);
+        document.addEventListener('visibilitychange', handleFocus);
+
+        return () => {
+            window.removeEventListener('focus', handleFocus);
+            document.removeEventListener('visibilitychange', handleFocus);
+        };
+    }, [isAuthenticated]);
+
     const handleUnauthorized = async () => {
         await logout();
         navigate('/login');
@@ -70,10 +86,15 @@ const MyScheduleView: React.FC = () => {
     const loadScheduleData = async () => {
         try {
             setLoading(true);
+            console.log('[MyScheduleView] Loading schedule data...');
+            
             const [availabilityRes, classesRes] = await Promise.all([
                 api.get<ApiResponse<Availability[]>>('/api/v1/instructor/availability'),
                 api.get<ApiResponse<Class[]>>('/api/v1/instructor/classes')
             ]);
+
+            console.log('[MyScheduleView] Availability response:', availabilityRes.data);
+            console.log('[MyScheduleView] Classes response:', classesRes.data);
 
             const availabilityEntries: ScheduleEntry[] = availabilityRes.data.data.map(a => ({
                 date: formatDate(a.date),
@@ -82,17 +103,21 @@ const MyScheduleView: React.FC = () => {
 
             const classEntries: ScheduleEntry[] = classesRes.data.data.map(c => ({
                 date: formatDate(c.date),
-                organization: c.organization,
+                organization: c.organization || 'TBD',
                 location: c.location,
-                classType: c.courseType,
-                notes: c.notes,
+                classType: c.type,
+                notes: c.notes || '',
                 status: 'CONFIRMED'
             }));
+
+            console.log('[MyScheduleView] Processed availability entries:', availabilityEntries);
+            console.log('[MyScheduleView] Processed class entries:', classEntries);
 
             const allEntries = [...availabilityEntries, ...classEntries].sort((a, b) => 
                 parseISO(a.date).getTime() - parseISO(b.date).getTime()
             );
 
+            console.log('[MyScheduleView] Final schedule entries:', allEntries);
             setSchedule(allEntries);
             setError(null);
         } catch (err: any) {
@@ -112,8 +137,8 @@ const MyScheduleView: React.FC = () => {
         return schedule.find(entry => entry.date === dateStr);
     };
 
-    const renderDay = (props: DayCalendarProps<Date>) => {
-        const { day, ...other } = props;
+    const CustomPickersDay = (pickersDayProps: any) => {
+        const { day, ...other } = pickersDayProps;
         const scheduleEntry = getScheduleForDate(day);
         const isSelected = format(selectedDate, 'yyyy-MM-dd') === format(day, 'yyyy-MM-dd');
 
@@ -168,11 +193,23 @@ const MyScheduleView: React.FC = () => {
         <Container maxWidth="lg">
             <Paper elevation={3} sx={{ p: 3, mt: 3 }}>
                 <Box sx={{ mb: 3 }}>
-                    <Typography variant="h5" gutterBottom>
-                        My Schedule
-                    </Typography>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                        <Typography variant="h5">
+                            My Schedule
+                        </Typography>
+                        <Tooltip title="Refresh schedule data">
+                            <IconButton 
+                                onClick={loadScheduleData} 
+                                disabled={loading}
+                                color="primary"
+                                size="large"
+                            >
+                                <Refresh />
+                            </IconButton>
+                        </Tooltip>
+                    </Box>
                     <Typography variant="body1" color="text.secondary">
-                        View your availability and scheduled classes
+                        View your availability and scheduled classes. Click refresh to update data.
                     </Typography>
                 </Box>
 
@@ -190,7 +227,7 @@ const MyScheduleView: React.FC = () => {
                                 onChange={(newDate) => handleDateChange(newDate || new Date())}
                                 onMonthChange={(newDate) => handleMonthChange(newDate || new Date())}
                                 slots={{
-                                    day: renderDay
+                                    day: CustomPickersDay
                                 }}
                                 sx={{
                                     width: '100%',
@@ -204,6 +241,64 @@ const MyScheduleView: React.FC = () => {
                                 }}
                             />
                         </LocalizationProvider>
+                        
+                        {/* Legend Panel */}
+                        <Paper elevation={2} sx={{ p: 2, mt: 2 }}>
+                            <Typography variant="h6" gutterBottom>
+                                Legend
+                            </Typography>
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                    <Box 
+                                        sx={{ 
+                                            width: 20, 
+                                            height: 20, 
+                                            borderRadius: '50%', 
+                                            backgroundColor: theme.palette.success.main 
+                                        }} 
+                                    />
+                                    <Typography variant="body2">🟢 Available</Typography>
+                                </Box>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                    <Box 
+                                        sx={{ 
+                                            width: 20, 
+                                            height: 20, 
+                                            borderRadius: '50%', 
+                                            backgroundColor: theme.palette.primary.main 
+                                        }} 
+                                    />
+                                    <Typography variant="body2">🔵 Scheduled Classes</Typography>
+                                </Box>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                    <Box 
+                                        sx={{ 
+                                            width: 20, 
+                                            height: 20, 
+                                            borderRadius: '50%', 
+                                            backgroundColor: theme.palette.warning.main 
+                                        }} 
+                                    />
+                                    <Typography variant="body2">🟡 Partially Available</Typography>
+                                </Box>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                    <Box 
+                                        sx={{ 
+                                            width: 20, 
+                                            height: 20, 
+                                            borderRadius: '50%', 
+                                            backgroundColor: theme.palette.error.main 
+                                        }} 
+                                    />
+                                    <Typography variant="body2">🔴 Unavailable/Booked</Typography>
+                                </Box>
+                                <Box sx={{ mt: 1, pt: 1, borderTop: `1px solid ${theme.palette.divider}` }}>
+                                    <Typography variant="caption" color="text.secondary">
+                                        Click on any date to view details
+                                    </Typography>
+                                </Box>
+                            </Box>
+                        </Paper>
                     </Grid>
                     <Grid item xs={12} md={6}>
                         <Paper elevation={2} sx={{ p: 2, height: '100%', minHeight: '300px' }}>

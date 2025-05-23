@@ -2,7 +2,7 @@ import axios from 'axios';
 import { tokenService } from '../services/tokenService';
 
 const api = axios.create({
-  baseURL: 'http://localhost:3001/api/v1',
+  baseURL: 'http://localhost:3001',
   withCredentials: true,
   headers: {
     'Content-Type': 'application/json',
@@ -14,7 +14,7 @@ const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     console.log('[Debug] API - Adding auth token to request');
-    const token = tokenService.getToken();
+    const token = tokenService.getAccessToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
     }
@@ -62,7 +62,7 @@ api.interceptors.response.use(
           const { accessToken } = response.data.data;
           console.log('[Debug] API - Token refresh successful');
           
-          tokenService.setToken(accessToken);
+          tokenService.setAccessToken(accessToken);
           originalRequest.headers.Authorization = `Bearer ${accessToken}`;
           return api(originalRequest);
         }
@@ -72,7 +72,7 @@ api.interceptors.response.use(
       
       // If we get here, either refresh failed or no new token was received
       console.log('[Debug] API - Clearing token and redirecting to login');
-      tokenService.clearToken();
+      tokenService.clearTokens();
       window.location.href = '/login';
     }
     

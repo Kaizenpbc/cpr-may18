@@ -4,7 +4,7 @@ import { asyncHandler } from '../../utils/errorHandler';
 import { ApiResponseBuilder } from '../../utils/apiResponse';
 import { AppError, errorCodes } from '../../utils/errorHandler';
 import bcrypt from 'bcryptjs';
-import pool from '../../config/database';
+import { pool } from '../../config/database';
 import { generateTokens } from '../../utils/jwtUtils';
 import { authenticateToken } from '../../middleware/authMiddleware';
 import { verifyRefreshToken } from '../../utils/jwtUtils';
@@ -44,7 +44,9 @@ router.post('/login', asyncHandler(async (req: Request, res: Response) => {
     // Generate tokens
     const tokens = generateTokens({
       userId: user.id,
-      username: user.username
+      username: user.username,
+      role: user.role,
+      organizationId: user.organization_id
     });
 
     // Set refresh token as httpOnly cookie
@@ -55,13 +57,27 @@ router.post('/login', asyncHandler(async (req: Request, res: Response) => {
       maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
     });
 
+    // Get organization info if user has one
+    let organizationName = null;
+    if (user.organization_id) {
+      const orgResult = await pool.query(
+        'SELECT name FROM organizations WHERE id = $1',
+        [user.organization_id]
+      );
+      if (orgResult.rows.length > 0) {
+        organizationName = orgResult.rows[0].name;
+      }
+    }
+
     // Return success response with access token
     res.json(ApiResponseBuilder.success({
       accessToken: tokens.accessToken,
       user: {
         id: user.id,
         username: user.username,
-        role: user.role
+        role: user.role,
+        organizationId: user.organization_id,
+        organizationName: organizationName
       }
     }));
   } catch (error) {
@@ -99,10 +115,23 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
       throw new AppError(401, errorCodes.AUTH_TOKEN_INVALID, 'Invalid refresh token payload');
     }
 
-    // Generate new tokens
+    // Fetch current user data to get the role
+    const result = await pool.query(
+      'SELECT id, username, role FROM users WHERE id = $1',
+      [parseInt(decoded.userId, 10)]
+    );
+
+    if (result.rows.length === 0) {
+      throw new AppError(404, errorCodes.RESOURCE_NOT_FOUND, 'User not found');
+    }
+
+    const user = result.rows[0];
+
+    // Generate new tokens with role
     const tokens = generateTokens({
-      userId: decoded.userId,
-      username: decoded.username
+      userId: user.id,
+      username: user.username,
+      role: user.role
     });
 
     // Set new refresh token cookie
@@ -130,7 +159,7 @@ router.get('/me', authenticateToken, asyncHandler(async (req: Request, res: Resp
     }
 
     const result = await pool.query(
-      'SELECT id, username, email, role FROM users WHERE id = $1',
+      'SELECT id, username, email, role, organization_id FROM users WHERE id = $1',
       [parseInt(req.user.userId, 10)]
     );
 
@@ -139,7 +168,29 @@ router.get('/me', authenticateToken, asyncHandler(async (req: Request, res: Resp
     }
 
     const user = result.rows[0];
-    res.json(ApiResponseBuilder.success({ user }));
+
+    // Get organization info if user has one
+    let organizationName = null;
+    if (user.organization_id) {
+      const orgResult = await pool.query(
+        'SELECT name FROM organizations WHERE id = $1',
+        [user.organization_id]
+      );
+      if (orgResult.rows.length > 0) {
+        organizationName = orgResult.rows[0].name;
+      }
+    }
+
+    res.json(ApiResponseBuilder.success({ 
+      user: {
+        id: user.id,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        organizationId: user.organization_id,
+        organizationName: organizationName
+      }
+    }));
   } catch (error) {
     console.error('Get current user error:', error);
     throw error;

@@ -17,7 +17,7 @@ import {
 } from '@mui/material';
 import { Add as AddIcon } from '@mui/icons-material';
 import type { Class, ApiResponse } from '../types/api';
-import api from '../api';
+import { api } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 

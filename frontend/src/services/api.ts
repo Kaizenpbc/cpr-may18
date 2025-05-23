@@ -4,93 +4,63 @@ import type { DashboardMetrics, Class, Availability, ApiResponse, User } from '.
 
 console.log('[Debug] api.ts - Initializing API service');
 
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3001';
-console.log('[Debug] api.ts - Using API URL:', API_URL);
+const BASE_URL = 'http://localhost:3001';
+console.log('[Debug] api.ts - Using API URL:', BASE_URL);
 
-// Create axios instance with default config
 const api = axios.create({
-  baseURL: API_URL,
+  baseURL: BASE_URL,
   headers: {
-    'Content-Type': 'application/json',
-  },
-  withCredentials: true, // Important: needed to send/receive cookies
+    'Content-Type': 'application/json'
+  }
 });
 
-// Add request interceptor for authentication
+// Request interceptor to add auth token
 api.interceptors.request.use(
   (config) => {
-    console.log('[Debug] api.ts - Intercepting request:', config.url);
-    const token = tokenService.getToken();
-    console.log('[Debug] api.ts - Token present:', !!token);
+    const token = tokenService.getAccessToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
-      console.log('[Debug] api.ts - Added token to request');
     }
     return config;
   },
   (error) => {
-    console.error('[Debug] api.ts - Request interceptor error:', error);
     return Promise.reject(error);
   }
 );
 
-// Add response interceptor for error handling
+// Response interceptor to handle token refresh
 api.interceptors.response.use(
-  (response) => {
-    console.log('[Debug] api.ts - Response received:', { 
-      status: response.status,
-      url: response.config.url
-    });
-
-    // Check if there's a new token in the Authorization header
-    const newToken = response.headers.authorization;
-    if (newToken && newToken.startsWith('Bearer ')) {
-      const token = newToken.split(' ')[1];
-      console.log('[Debug] api.ts - Received new token in header');
-      tokenService.setToken(token);
-      api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-    }
-
-    return response;
-  },
+  (response) => response,
   async (error) => {
-    console.error('[Debug] api.ts - Response error:', error.response?.status, error.config?.url);
+    const originalRequest = error.config;
 
-    // If the error is 401 and we haven't tried to refresh the token yet
-    if (error.response?.status === 401 && !error.config._retry) {
-      console.log('[Debug] api.ts - Attempting to handle 401 error');
-      error.config._retry = true;
+    if (error.response?.status === 401 && !originalRequest._retry) {
+      originalRequest._retry = true;
 
       try {
-        // The auth middleware will handle token refresh automatically
-        // Just retry the original request
-        console.log('[Debug] api.ts - Retrying original request');
-        const retryResponse = await api(error.config);
-        
-        // Check if we got a new token in the retry response
-        const newToken = retryResponse.headers.authorization;
-        if (newToken && newToken.startsWith('Bearer ')) {
-          const token = newToken.split(' ')[1];
-          console.log('[Debug] api.ts - Received new token from retry');
-          tokenService.setToken(token);
-          api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+        // Attempt to refresh the token
+        const refreshToken = tokenService.getRefreshToken();
+        if (!refreshToken) {
+          throw new Error('No refresh token available');
         }
-        
-        return retryResponse;
-      } catch (retryError) {
-        console.error('[Debug] api.ts - Request retry failed:', retryError);
-        
-        // If the retry also failed with 401, clear token and redirect to login
-        if (axios.isAxiosError(retryError) && retryError.response?.status === 401) {
-          console.log('[Debug] api.ts - Retry failed with 401, clearing token and redirecting');
-          tokenService.clearToken();
-          delete api.defaults.headers.common['Authorization'];
-          window.location.href = '/login';
-        }
-        
-        return Promise.reject(retryError);
+
+        const response = await axios.post(`${BASE_URL}/auth/refresh`, {
+          refreshToken
+        });
+
+        const { accessToken } = response.data;
+        tokenService.setAccessToken(accessToken);
+
+        // Retry the original request with the new token
+        originalRequest.headers.Authorization = `Bearer ${accessToken}`;
+        return api(originalRequest);
+      } catch (refreshError) {
+        // If refresh fails, clear tokens and reject
+        tokenService.clearTokens();
+        return Promise.reject(refreshError);
       }
     }
+
     return Promise.reject(error);
   }
 );
@@ -107,9 +77,9 @@ const extractData = <T>(response: { data: ApiResponse<T> }): T => {
 export const fetchDashboardData = async (): Promise<DashboardMetrics> => {
   console.log('[Debug] api.ts - Fetching dashboard data');
   try {
-    const token = tokenService.getToken();
+    const token = tokenService.getAccessToken();
     console.log('[Debug] api.ts - Auth token present:', !!token);
-    console.log('[Debug] api.ts - Base URL:', API_URL);
+    console.log('[Debug] api.ts - Base URL:', BASE_URL);
     console.log('[Debug] api.ts - Endpoint:', '/api/v1/dashboard');
     const response = await api.get<ApiResponse<DashboardMetrics>>('/api/v1/dashboard');
     const data = extractData(response);
@@ -126,74 +96,94 @@ export const fetchDashboardData = async (): Promise<DashboardMetrics> => {
 };
 
 // Auth endpoints
-export const logout = async (): Promise<void> => {
-  console.log('[Debug] api.ts - Logging out');
-  try {
-    await api.post('/api/v1/auth/logout');
-    console.log('[Debug] api.ts - Logout successful');
-  } catch (error) {
-    console.error('[Debug] api.ts - Logout error:', error);
-    // Still remove token even if logout fails
-    tokenService.clearToken();
-  }
+export const authApi = {
+  login: (username: string, password: string) =>
+    api.post('/api/v1/auth/login', { username, password }),
+  logout: () => api.post('/api/v1/auth/logout'),
+  refreshToken: () => api.post('/api/v1/auth/refresh'),
 };
 
-// Schedule endpoints
+// Password reset functions
+export const requestPasswordReset = async (email: string) => {
+  const response = await api.post('/api/v1/auth/forgot-password', { email });
+  return response.data;
+};
+
+export const resetPassword = async (token: string, password: string) => {
+  const response = await api.post('/api/v1/auth/reset-password', { token, password });
+  return response.data;
+};
+
+// Course admin endpoints
+export const courseAdminApi = {
+  // Courses
+  getCourses: () => api.get('/api/v1/courses'),
+  createCourse: (data: any) => api.post('/api/v1/courses', data),
+  updateCourse: (id: number, data: any) => api.put(`/api/v1/courses/${id}`, data),
+  deleteCourse: (id: number) => api.delete(`/api/v1/courses/${id}`),
+  assignInstructor: (courseId: number, instructorId: number) => 
+    api.put(`/api/v1/courses/${courseId}/assign-instructor`, { instructorId }),
+
+  // Classes
+  getClasses: () => api.get('/api/v1/classes'),
+  createClass: (data: any) => api.post('/api/v1/classes', data),
+  updateClass: (id: number, data: any) => api.put(`/api/v1/classes/${id}`, data),
+  deleteClass: (id: number) => api.delete(`/api/v1/classes/${id}`),
+
+  // Instructors
+  getInstructors: () => api.get('/api/v1/instructors'),
+  createInstructor: (data: any) => api.post('/api/v1/instructors', data),
+  updateInstructor: (id: number, data: any) => api.put(`/api/v1/instructors/${id}`, data),
+  deleteInstructor: (id: number) => api.delete(`/api/v1/instructors/${id}`),
+  updateInstructorAvailability: (id: number, data: any) =>
+    api.put(`/api/v1/instructors/${id}/availability`, data),
+};
+
+// Organization endpoints
+export const organizationApi = {
+  requestCourse: (data: any) => api.post('/api/v1/organization/course-request', data),
+  getMyCourses: () => api.get('/api/v1/organization/courses'),
+  getCourseStudents: (courseId: number) => api.get(`/api/v1/organization/courses/${courseId}/students`),
+};
+
+// Course types endpoint
+export const getCourseTypes = async () => {
+  const response = await api.get('/api/v1/course-types');
+  return extractData(response);
+};
+
+// Organization course request method (for backward compatibility with ScheduleCourseForm)
+export const requestCourse = async (data: any) => {
+  const response = await api.post('/api/v1/organization/course-request', data);
+  return response.data;
+};
+
+// Student endpoints
+export const studentApi = {
+  getSchedule: () => api.get('/api/v1/student/schedule'),
+  enrollInClass: (classId: number) => api.post(`/api/v1/student/enroll/${classId}`),
+  withdrawFromClass: (classId: number) => api.delete(`/api/v1/student/withdraw/${classId}`),
+};
+
+// Instructor endpoints
+export const instructorApi = {
+  getSchedule: () => api.get('/api/v1/instructor/schedule'),
+  getAvailability: () => api.get('/api/v1/instructor/availability'),
+  updateAvailability: (data: any) => api.put('/api/v1/instructor/availability', data),
+};
+
+// Additional exports for backward compatibility
 export const fetchInstructorAvailability = async (): Promise<Availability[]> => {
-  console.log('[Debug] api.ts - Fetching instructor availability');
   const response = await api.get<ApiResponse<Availability[]>>('/api/v1/instructor/availability');
   return extractData(response);
 };
 
-export const updateInstructorAvailability = async (availability: Partial<Availability>): Promise<Availability> => {
-  console.log('[Debug] api.ts - Updating instructor availability');
-  const response = await api.post<ApiResponse<Availability>>('/api/v1/instructor/availability', availability);
-  return extractData(response);
-};
-
 export const fetchSchedule = async (): Promise<Class[]> => {
-  console.log('[Debug] api.ts - Fetching schedule');
-  const response = await api.get<ApiResponse<Class[]>>('/api/v1/schedule');
+  const response = await api.get<ApiResponse<Class[]>>('/api/v1/instructor/schedule');
   return extractData(response);
-};
-
-// Attendance endpoints
-export const fetchAttendance = async (classId: string): Promise<{ present: string[] }> => {
-  console.log('[Debug] api.ts - Fetching attendance for class:', classId);
-  const response = await api.get<ApiResponse<{ present: string[] }>>(`/api/v1/attendance/${classId}`);
-  return extractData(response);
-};
-
-export const updateAttendance = async (classId: string, attendance: { present: string[] }): Promise<{ present: string[] }> => {
-  console.log('[Debug] api.ts - Updating attendance for class:', classId);
-  const response = await api.post<ApiResponse<{ present: string[] }>>(`/api/v1/attendance/${classId}`, attendance);
-  return extractData(response);
-};
-
-// Password reset endpoints
-export const requestPasswordReset = async (email: string): Promise<void> => {
-  console.log('[Debug] api.ts - Requesting password reset for email:', email);
-  try {
-    await api.post('/api/v1/auth/forgot-password', { email });
-    console.log('[Debug] api.ts - Password reset request successful');
-  } catch (error) {
-    console.error('[Debug] api.ts - Password reset request error:', error);
-    throw error;
-  }
-};
-
-export const resetPassword = async (token: string, newPassword: string): Promise<void> => {
-  console.log('[Debug] api.ts - Resetting password with token');
-  try {
-    await api.post('/api/v1/auth/reset-password', { token, newPassword });
-    console.log('[Debug] api.ts - Password reset successful');
-  } catch (error) {
-    console.error('[Debug] api.ts - Password reset error:', error);
-    throw error;
-  }
 };
 
 // Export the api instance for use in other services
-export default api;
+export { api };
 
 console.log('[Debug] api.ts - API service initialized'); 

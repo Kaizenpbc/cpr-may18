@@ -79,7 +79,7 @@ const ontarioHolidays2024 = new Set([
 // Note: Easter Sunday (Mar 31) & Remembrance Day (Nov 11) are not statutory holidays in ON.
 
 const InstructorPortal = () => {
-    const { isAuthenticated, logout, socket } = useAuth();
+    const { isAuthenticated, logout, socket, user } = useAuth();
     const navigate = useNavigate();
     const [view, setView] = useState('availability');
     const [selectedDate, setSelectedDate] = useState(null);
@@ -501,10 +501,10 @@ const InstructorPortal = () => {
                                 textAlign: 'center'
                             }}
                         >
-                            Instructor Portal
+                            🏥 Instructor Portal
                         </Typography>
                         <Typography variant="body1" noWrap sx={{ mr: 2 }}>
-                            Welcome {user?.first_name || 'Instructor'}!
+                            Welcome {user?.username || user?.first_name || 'Instructor'}!
                         </Typography>
                         {/* Optional: Add a logout button here as well/instead */}
                         {/* <Button color="inherit" onClick={handleLogout}>Logout</Button> */}

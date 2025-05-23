@@ -1,8 +1,12 @@
 export interface User {
     id: string;
+    username: string;
     email: string;
-    full_name: string;
-    role: 'instructor' | 'admin';
+    full_name?: string;
+    first_name?: string;
+    role: 'instructor' | 'admin' | 'organization' | 'superadmin' | 'student';
+    organizationId?: number;
+    organizationName?: string;
 }
 
 export interface Class {
@@ -15,6 +19,8 @@ export interface Class {
     max_students: number;
     current_students: number;
     status: 'scheduled' | 'in_progress' | 'completed' | 'cancelled';
+    organization?: string;
+    notes?: string;
 }
 
 export interface Availability {

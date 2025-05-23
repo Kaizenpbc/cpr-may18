@@ -11,10 +11,32 @@ declare global {
         userId: string;
         username: string;
         role?: string;
+        organizationId?: number;
       };
     }
   }
 }
+
+// Role-based authentication middleware
+export const requireRole = (allowedRoles: string[]) => {
+  return (req: Request, res: Response, next: NextFunction) => {
+    if (!req.user || !req.user.role) {
+      return res.status(403).json(ApiResponseBuilder.error(
+        errorCodes.AUTH_INSUFFICIENT_PERMISSIONS,
+        'Access denied: No role specified'
+      ));
+    }
+
+    if (!allowedRoles.includes(req.user.role)) {
+      return res.status(403).json(ApiResponseBuilder.error(
+        errorCodes.AUTH_INSUFFICIENT_PERMISSIONS,
+        'Access denied: Insufficient privileges'
+      ));
+    }
+
+    next();
+  };
+};
 
 export const authenticateToken = async (req: Request, res: Response, next: NextFunction) => {
   console.log('[Debug] authMiddleware - Authenticating request:', req.path);

@@ -1,4 +1,4 @@
-import { Pool } from 'pg';
+import { Pool, PoolConfig } from 'pg';
 import type { PoolConfig, QueryResult, QueryResultRow } from 'pg';
 import { retry } from '@lifeomic/attempt';
 import dotenv from 'dotenv';
@@ -9,11 +9,11 @@ dotenv.config();
 
 // Database configuration
 const poolConfig: PoolConfig = {
-  user: 'postgres',
-  password: 'gtacpr',
-  host: 'localhost',
-  port: 5432,
-  database: 'cpr_may18'
+  user: process.env.DB_USER || 'postgres',
+  password: process.env.DB_PASSWORD || 'gtacpr',
+  host: process.env.DB_HOST || 'localhost',
+  port: parseInt(process.env.DB_PORT || '5432'),
+  database: process.env.DB_NAME || 'cpr_may18'
 };
 
 // Create the connection pool
@@ -34,6 +34,26 @@ const initializeDatabase = async () => {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
+
+    // Create default admin user if it doesn't exist
+    const adminPassword = 'test123';
+    const adminPasswordHash = await bcrypt.hash(adminPassword, 10);
+    
+    await pool.query(`
+      INSERT INTO users (username, email, password_hash, role)
+      VALUES ('admin', 'admin@cpr.com', $1, 'admin')
+      ON CONFLICT (username) DO NOTHING;
+    `, [adminPasswordHash]);
+
+    // Create default instructor user if it doesn't exist
+    const instructorPassword = 'test123';
+    const instructorPasswordHash = await bcrypt.hash(instructorPassword, 10);
+    
+    await pool.query(`
+      INSERT INTO users (username, email, password_hash, role)
+      VALUES ('instructor', 'instructor@cpr.com', $1, 'instructor')
+      ON CONFLICT (username) DO NOTHING;
+    `, [instructorPasswordHash]);
 
     // Create certifications table if it doesn't exist
     await pool.query(`
@@ -194,9 +214,75 @@ const initializeDatabase = async () => {
       );
     `, [instructorId]);
 
+    // Create organizations table if it doesn't exist
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS organizations (
+        id SERIAL PRIMARY KEY,
+        name VARCHAR(255) NOT NULL UNIQUE,
+        contact_email VARCHAR(255),
+        contact_phone VARCHAR(20),
+        address TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Insert default organizations if none exist
+    await pool.query(`
+      INSERT INTO organizations (name, contact_email, contact_phone, address)
+      VALUES 
+        ('Test Organization', 'test@org.com', '555-1234', '123 Main St'),
+        ('Demo Company', 'demo@company.com', '555-5678', '456 Business Ave')
+      ON CONFLICT (name) DO NOTHING;
+    `);
+
+    // Create course_requests table if it doesn't exist
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS course_requests (
+        id SERIAL PRIMARY KEY,
+        organization_id INTEGER NOT NULL REFERENCES organizations(id),
+        course_type_id INTEGER NOT NULL REFERENCES class_types(id),
+        date_requested DATE NOT NULL,
+        location VARCHAR(255) NOT NULL,
+        registered_students INTEGER NOT NULL DEFAULT 0,
+        notes TEXT,
+        status VARCHAR(50) NOT NULL DEFAULT 'pending',
+        instructor_id INTEGER REFERENCES users(id),
+        scheduled_date DATE,
+        scheduled_start_time TIME,
+        scheduled_end_time TIME,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Add organization_id to users table if it doesn't exist
+    await pool.query(`
+      DO $$ 
+      BEGIN 
+        IF NOT EXISTS (
+          SELECT 1 
+          FROM information_schema.columns 
+          WHERE table_name = 'users' AND column_name = 'organization_id'
+        ) THEN 
+          ALTER TABLE users ADD COLUMN organization_id INTEGER REFERENCES organizations(id);
+        END IF;
+      END $$;
+    `);
+
+    // Create default organization user if it doesn't exist
+    const orgPassword = 'test123';
+    const orgPasswordHash = await bcrypt.hash(orgPassword, 10);
+    
+    await pool.query(`
+      INSERT INTO users (username, email, password_hash, role, organization_id)
+      VALUES ('orguser', 'org@cpr.com', $1, 'organization', 1)
+      ON CONFLICT (username) DO NOTHING;
+    `, [orgPasswordHash]);
+
     console.log('Database tables initialized successfully');
   } catch (error) {
-    console.error('Error initializing database tables:', error);
+    console.error('Error initializing database:', error);
     throw error;
   }
 };
@@ -265,4 +351,4 @@ export const getClient = async () => {
   return client;
 };
 
-export default pool; 
+export { pool, initializeDatabase }; 

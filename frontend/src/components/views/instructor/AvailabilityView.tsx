@@ -10,7 +10,12 @@ import {
     Alert,
     IconButton,
     Tooltip,
-    useTheme
+    useTheme,
+    Dialog,
+    DialogTitle,
+    DialogContent,
+    DialogContentText,
+    DialogActions
 } from '@mui/material';
 import {
     Event as EventIcon,
@@ -23,9 +28,8 @@ import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { DateCalendar } from '@mui/x-date-pickers/DateCalendar';
 import { PickersDay } from '@mui/x-date-pickers/PickersDay';
-import type { DayProps } from '@mui/x-date-pickers';
 import type { Class, Availability, ApiResponse } from '../../../types/api';
-import api from '../../../api';
+import api from '../../../api/index';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
@@ -33,6 +37,13 @@ interface Props {
     availableDates?: string[];
     scheduledClasses?: Class[];
     ontarioHolidays2024?: string[];
+}
+
+interface ConfirmationState {
+    open: boolean;
+    date: string;
+    action: 'add' | 'remove';
+    isAvailable: boolean;
 }
 
 const AvailabilityView: React.FC<Props> = ({
@@ -49,6 +60,12 @@ const AvailabilityView: React.FC<Props> = ({
     const [holidays, setHolidays] = useState<string[]>(ontarioHolidays2024 || []);
     const [loading, setLoading] = useState<boolean>(true);
     const [error, setError] = useState<string | null>(null);
+    const [confirmation, setConfirmation] = useState<ConfirmationState>({
+        open: false,
+        date: '',
+        action: 'add',
+        isAvailable: false
+    });
 
     useEffect(() => {
         if (!isAuthenticated) {
@@ -96,17 +113,52 @@ const AvailabilityView: React.FC<Props> = ({
             return;
         }
 
+        const dateStr = format(date, 'yyyy-MM-dd');
+        const isAvailable = availableDates.includes(dateStr);
+        
+        // Show confirmation dialog
+        setConfirmation({
+            open: true,
+            date: dateStr,
+            action: isAvailable ? 'remove' : 'add',
+            isAvailable
+        });
+    };
+
+    const handleConfirmationClose = () => {
+        setConfirmation({
+            open: false,
+            date: '',
+            action: 'add',
+            isAvailable: false
+        });
+    };
+
+    const handleConfirmationConfirm = async () => {
         try {
-            const dateStr = format(date, 'yyyy-MM-dd');
-            const isAvailable = availableDates.includes(dateStr);
+            const { date: dateStr, isAvailable } = confirmation;
+            console.log('[AvailabilityView] Confirming action:', confirmation.action, 'for date:', dateStr);
             
             if (isAvailable) {
+                console.log('[AvailabilityView] Removing availability for:', dateStr);
                 await api.delete(`/api/v1/instructor/availability/${dateStr}`);
-                setAvailableDates(prev => prev.filter(d => d !== dateStr));
+                setAvailableDates(prev => {
+                    const newDates = prev.filter(d => d !== dateStr);
+                    console.log('[AvailabilityView] Updated available dates after removal:', newDates);
+                    return newDates;
+                });
             } else {
+                console.log('[AvailabilityView] Adding availability for:', dateStr);
                 await api.post('/api/v1/instructor/availability', { date: dateStr });
-                setAvailableDates(prev => [...prev, dateStr]);
+                setAvailableDates(prev => {
+                    const newDates = [...prev, dateStr];
+                    console.log('[AvailabilityView] Updated available dates after addition:', newDates);
+                    return newDates;
+                });
             }
+            
+            setError(null);
+            console.log('[AvailabilityView] Operation completed successfully');
         } catch (error: any) {
             if (error.response?.status === 401) {
                 handleUnauthorized();
@@ -114,49 +166,90 @@ const AvailabilityView: React.FC<Props> = ({
             }
             setError('Failed to update availability');
             console.error('Error updating availability:', error);
+        } finally {
+            handleConfirmationClose();
         }
     };
 
-    const dayRenderer = (day: Date) => {
+    const CustomDay = (props: any) => {
+        const { day, ...other } = props;
         const dateStr = format(day, 'yyyy-MM-dd');
         const isAvailable = availableDates.includes(dateStr);
         const isScheduled = scheduledClasses.some(c => format(parseISO(c.date), 'yyyy-MM-dd') === dateStr);
         const isHoliday = holidays.includes(dateStr);
-
-        let tooltipTitle = '';
+        const isPastDate = day < new Date(new Date().setHours(0, 0, 0, 0));
+        
+        // Determine day status and color
+        let backgroundColor, hoverColor, tooltipTitle, textColor = 'white';
+        
         if (isScheduled) {
+            // 🔵 Blue = Scheduled Classes
+            backgroundColor = theme.palette.primary.main;
+            hoverColor = theme.palette.primary.dark;
             const classInfo = scheduledClasses.find(c => format(parseISO(c.date), 'yyyy-MM-dd') === dateStr);
-            tooltipTitle = `Scheduled: ${classInfo?.organization}`;
+            tooltipTitle = `🔵 Scheduled: ${classInfo?.organization || 'Class'}`;
         } else if (isAvailable) {
-            tooltipTitle = 'Available';
+            // 🟢 Green = Available
+            backgroundColor = theme.palette.success.main;
+            hoverColor = theme.palette.success.dark;
+            tooltipTitle = '🟢 Available - Click to remove';
         } else if (isHoliday) {
-            tooltipTitle = 'Holiday';
+            // 🟡 Yellow = Partially Available (using holidays as an example)
+            backgroundColor = theme.palette.warning.main;
+            hoverColor = theme.palette.warning.dark;
+            tooltipTitle = '🟡 Holiday (Partially Available)';
+        } else if (isPastDate) {
+            // 🔴 Red = Unavailable/Booked (past dates)
+            backgroundColor = theme.palette.error.main;
+            hoverColor = theme.palette.error.dark;
+            tooltipTitle = '🔴 Unavailable (Past Date)';
+        } else {
+            // Default state - can be marked as available
+            backgroundColor = 'inherit';
+            hoverColor = theme.palette.action.hover;
+            textColor = 'inherit';
+            tooltipTitle = 'Click to mark as available';
         }
 
-        return {
-            sx: {
-                backgroundColor: isScheduled
-                    ? `${theme.palette.primary.main}!important`
-                    : isAvailable
-                    ? `${theme.palette.success.main}!important`
-                    : isHoliday
-                    ? `${theme.palette.warning.light}!important`
-                    : 'inherit',
-                color: (isScheduled || isAvailable || isHoliday) ? 'white!important' : 'inherit',
-                '&:hover': {
-                    backgroundColor: isScheduled
-                        ? `${theme.palette.primary.dark}!important`
-                        : isAvailable
-                        ? `${theme.palette.success.dark}!important`
-                        : isHoliday
-                        ? `${theme.palette.warning.main}!important`
-                        : 'inherit'
-                }
-            },
-            disabled: false,
-            selected: false,
-            today: format(day, 'yyyy-MM-dd') === format(new Date(), 'yyyy-MM-dd')
+        const handleDayClick = () => {
+            if (isPastDate || isScheduled) {
+                return; // Don't allow clicks on past dates or scheduled classes
+            }
+            
+            console.log('Day clicked:', dateStr, 'isAvailable:', isAvailable);
+            
+            // Show confirmation dialog
+            setConfirmation({
+                open: true,
+                date: dateStr,
+                action: isAvailable ? 'remove' : 'add',
+                isAvailable
+            });
         };
+
+        return (
+            <Tooltip title={tooltipTitle} arrow>
+                <PickersDay
+                    {...other}
+                    day={day}
+                    onClick={handleDayClick}
+                    disabled={isPastDate}
+                    sx={{
+                        backgroundColor: `${backgroundColor}!important`,
+                        color: `${textColor}!important`,
+                        cursor: (isPastDate || isScheduled) ? 'not-allowed' : 'pointer',
+                        '&:hover': {
+                            backgroundColor: `${hoverColor}!important`
+                        },
+                        '&.Mui-disabled': {
+                            backgroundColor: `${backgroundColor}!important`,
+                            color: `${textColor}!important`,
+                            opacity: 0.7
+                        }
+                    }}
+                />
+            </Tooltip>
+        );
     };
 
     if (loading) {
@@ -190,10 +283,9 @@ const AvailabilityView: React.FC<Props> = ({
                         <LocalizationProvider dateAdapter={AdapterDateFns}>
                             <DateCalendar
                                 value={currentDate}
-                                onChange={handleDateClick}
                                 onMonthChange={(date) => date && setCurrentDate(date)}
-                                slotProps={{
-                                    day: (props) => dayRenderer(props.day)
+                                slots={{
+                                    day: CustomDay
                                 }}
                             />
                         </LocalizationProvider>
@@ -203,24 +295,109 @@ const AvailabilityView: React.FC<Props> = ({
                             <Typography variant="h6" gutterBottom>
                                 Legend
                             </Typography>
+                            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                    <Box 
+                                        sx={{ 
+                                            width: 20, 
+                                            height: 20, 
+                                            borderRadius: '50%', 
+                                            backgroundColor: theme.palette.success.main 
+                                        }} 
+                                    />
+                                    <Typography variant="body2">🟢 Available</Typography>
+                                </Box>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                    <Box 
+                                        sx={{ 
+                                            width: 20, 
+                                            height: 20, 
+                                            borderRadius: '50%', 
+                                            backgroundColor: theme.palette.error.main 
+                                        }} 
+                                    />
+                                    <Typography variant="body2">🔴 Unavailable/Booked</Typography>
+                                </Box>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                    <Box 
+                                        sx={{ 
+                                            width: 20, 
+                                            height: 20, 
+                                            borderRadius: '50%', 
+                                            backgroundColor: theme.palette.warning.main 
+                                        }} 
+                                    />
+                                    <Typography variant="body2">🟡 Partially Available</Typography>
+                                </Box>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                                    <Box 
+                                        sx={{ 
+                                            width: 20, 
+                                            height: 20, 
+                                            borderRadius: '50%', 
+                                            backgroundColor: theme.palette.primary.main 
+                                        }} 
+                                    />
+                                    <Typography variant="body2">🔵 Scheduled Classes</Typography>
+                                </Box>
+                                <Box sx={{ mt: 1, pt: 1, borderTop: `1px solid ${theme.palette.divider}` }}>
+                                    <Typography variant="caption" color="text.secondary">
+                                        Click on any date to toggle availability
+                                    </Typography>
+                                </Box>
+                            </Box>
+                        </Paper>
+                        
+                        {/* Additional Info Panel */}
+                        <Paper elevation={2} sx={{ p: 2, mt: 2 }}>
+                            <Typography variant="h6" gutterBottom>
+                                Quick Stats
+                            </Typography>
                             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                    <EventAvailableIcon sx={{ color: theme.palette.success.main }} />
-                                    <Typography>Available</Typography>
-                                </Box>
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                    <EventBusyIcon sx={{ color: theme.palette.primary.main }} />
-                                    <Typography>Scheduled Class</Typography>
-                                </Box>
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                    <HolidayVillageIcon sx={{ color: theme.palette.warning.light }} />
-                                    <Typography>Holiday</Typography>
-                                </Box>
+                                <Typography variant="body2">
+                                    Available Days: <strong>{availableDates.length}</strong>
+                                </Typography>
+                                <Typography variant="body2">
+                                    Scheduled Classes: <strong>{scheduledClasses.length}</strong>
+                                </Typography>
                             </Box>
                         </Paper>
                     </Box>
                 </Box>
             </Paper>
+
+            {/* Confirmation Dialog */}
+            <Dialog
+                open={confirmation.open}
+                onClose={handleConfirmationClose}
+                aria-labelledby="confirmation-dialog-title"
+                aria-describedby="confirmation-dialog-description"
+            >
+                <DialogTitle id="confirmation-dialog-title">
+                    {confirmation.action === 'add' ? 'Add Availability' : 'Remove Availability'}
+                </DialogTitle>
+                <DialogContent>
+                    <DialogContentText id="confirmation-dialog-description">
+                        {confirmation.action === 'add' 
+                            ? `Are you sure you want to mark ${confirmation.date} as available for teaching?`
+                            : `Are you sure you want to remove your availability for ${confirmation.date}?`
+                        }
+                    </DialogContentText>
+                </DialogContent>
+                <DialogActions>
+                    <Button onClick={handleConfirmationClose} color="inherit">
+                        Cancel
+                    </Button>
+                    <Button 
+                        onClick={handleConfirmationConfirm} 
+                        color={confirmation.action === 'add' ? 'success' : 'error'}
+                        variant="contained"
+                        autoFocus
+                    >
+                        {confirmation.action === 'add' ? 'Add Availability' : 'Remove Availability'}
+                    </Button>
+                </DialogActions>
+            </Dialog>
         </Container>
     );
 };

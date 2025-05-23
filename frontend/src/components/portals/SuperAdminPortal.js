@@ -95,10 +95,10 @@ const SuperAdminPortal = () => {
             >
                 <Toolbar>
                     <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1, textAlign: 'center' }}>
-                        Super Admin Portal
+                        ⚡ Super Admin Portal
                     </Typography>
                     <Typography variant="body1" noWrap sx={{ mr: 2 }}>
-                         Welcome {user?.first_name || 'Super Admin'}!
+                         Welcome {user?.username || user?.first_name || 'Super Admin'}!
                     </Typography>
                 </Toolbar>
             </AppBar>

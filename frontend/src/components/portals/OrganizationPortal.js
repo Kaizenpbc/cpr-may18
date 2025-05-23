@@ -63,21 +63,13 @@ const OrganizationPortal = () => {
     };
 
     const loadOrgCourses = useCallback(async () => {
-        if (!user?.organization_id) {
-            setCoursesError('Organization ID not found for user.');
-            logger.error("Cannot load courses: Organization ID missing in user context.");
-            return;
-        }
         setIsLoadingCourses(true);
         setCoursesError('');
         try {
             logger.info('Fetching organization courses...');
-            const response = await api.getOrganizationCourses(user.organization_id);
-            if (response.success) {
-                setOrganizationCourses(response.courses || []);
-            } else {
-                throw new Error(response.message || 'Failed to load courses');
-            }
+            const response = await api.organizationApi.getMyCourses();
+            logger.info('Organization courses response:', response);
+            setOrganizationCourses(response.data || []);
         } catch (err) {
             logger.error('Error fetching courses:', err);
             setCoursesError(err.message || 'Failed to load courses.');
@@ -85,7 +77,7 @@ const OrganizationPortal = () => {
         } finally {
             setIsLoadingCourses(false);
         }
-    }, [user?.organization_id]);
+    }, []);
 
     useEffect(() => {
         if (selectedView === 'myCourses') {
@@ -185,10 +177,10 @@ const OrganizationPortal = () => {
             >
                 <Toolbar>
                     <Typography variant="h6" noWrap component="div" sx={{ flexGrow: 1, textAlign: 'center' }}>
-                        Organization Portal
+                        🏢 Organization Portal
                     </Typography>
                     <Typography variant="body1" noWrap sx={{ mr: 2 }}>
-                         Welcome {user?.first_name || 'Org User'}!
+                         Welcome {user?.username || user?.organizationName || 'Organization User'}!
                     </Typography>
                 </Toolbar>
             </AppBar>

@@ -5,7 +5,7 @@ import { ApiResponseBuilder } from '../../utils/apiResponse';
 import { AppError, errorCodes } from '../../utils/errorHandler';
 import bcrypt from 'bcryptjs';
 import pool from '../../config/database';
-import { generateTokens } from '../../utils/jwtUtils';
+import { generateTokens, verifyRefreshToken } from '../../utils/jwtUtils';
 
 const router = Router();
 
@@ -42,7 +42,8 @@ router.post('/login', asyncHandler(async (req: Request, res: Response) => {
     // Generate tokens
     const tokens = generateTokens({
       userId: user.id,
-      username: user.username
+      username: user.username,
+      role: user.role
     });
 
     // Set refresh token as httpOnly cookie
@@ -90,10 +91,26 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
   }
 
   try {
-    // Verify refresh token and generate new tokens
+    // Verify refresh token using the imported function
+    const payload = verifyRefreshToken(refreshToken);
+    
+    // Fetch fresh user data from database to get current role
+    const result = await pool.query(
+      'SELECT * FROM users WHERE id = $1',
+      [payload.userId]
+    );
+
+    if (result.rows.length === 0) {
+      throw new AppError(401, errorCodes.AUTH_TOKEN_INVALID, 'User not found');
+    }
+
+    const user = result.rows[0];
+
+    // Generate new tokens with current user data
     const tokens = generateTokens({
-      userId: req.user?.id,
-      username: req.user?.username
+      userId: user.id,
+      username: user.username,
+      role: user.role
     });
 
     // Set new refresh token cookie
@@ -109,6 +126,7 @@ router.post('/refresh', asyncHandler(async (req: Request, res: Response) => {
       accessToken: tokens.accessToken
     }));
   } catch (error) {
+    console.error('Refresh token error:', error);
     throw new AppError(401, errorCodes.AUTH_TOKEN_INVALID, 'Invalid refresh token');
   }
 }));

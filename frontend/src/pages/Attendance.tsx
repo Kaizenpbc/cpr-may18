@@ -31,7 +31,7 @@ import {
   FilterList as FilterIcon,
   Sort as SortIcon,
 } from '@mui/icons-material';
-import api from '../api';
+import { api } from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
