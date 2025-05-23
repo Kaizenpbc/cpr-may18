@@ -119,17 +119,17 @@ const InstructorPortal = () => {
         logger.debug('[InstructorPortal] Starting loadInitialData...');
         try {
             logger.debug('[InstructorPortal] Fetching availability...');
-            const availabilityResponse = await api.get('/instructor/availability');
+            const availabilityResponse = await api.get('/api/v1/instructor/availability');
             logger.debug('[InstructorPortal] Availability response:', availabilityResponse);
             setAvailableDates(new Set(availabilityResponse.data.data.map(avail => avail.date)));
 
             logger.debug('[InstructorPortal] Fetching scheduled classes...');
-            const classesResponse = await api.get('/instructor/classes');
+            const classesResponse = await api.get('/api/v1/instructor/classes');
             logger.debug('[InstructorPortal] Classes response:', classesResponse);
             setScheduledClasses(classesResponse.data.data || []);
 
             // Fetch course history
-            const historyResponse = await api.get('/instructor/classes/completed');
+            const historyResponse = await api.get('/api/v1/instructor/classes/completed');
             logger.debug('[InstructorPortal] Setting course history:', historyResponse.data.data);
             setCourseHistory(historyResponse.data.data);
 
@@ -153,7 +153,7 @@ const InstructorPortal = () => {
 
     const fetchScheduledClasses = useCallback(async () => {
         try {
-            const response = await api.get('/instructor/classes');
+            const response = await api.get('/api/v1/instructor/classes');
             setScheduledClasses(response.data.data);
         } catch (error) {
             logger.error('Error fetching scheduled classes:', error);
@@ -168,7 +168,7 @@ const InstructorPortal = () => {
         setIsLoadingArchive(true);
         setArchiveError('');
         try {
-            const response = await api.get('/instructor/classes/completed');
+            const response = await api.get('/api/v1/instructor/classes/completed');
             if (response.data.success) {
                 setArchivedCourses(response.data.courses);
             } else {
@@ -186,7 +186,7 @@ const InstructorPortal = () => {
     const fetchStudentsForClass = useCallback(async (course_id) => {
         try {
             logger.debug(`[fetchStudentsForClass] Fetching students for course ${course_id}...`);
-            const data = await api.get('/instructor/classes/students', { params: { course_id } });
+            const data = await api.get('/api/v1/instructor/classes/students', { params: { course_id } });
             setStudentsForAttendance(data || []);
             logger.debug(`[fetchStudentsForClass] State updated for course ${course_id}:`, data || []);
         } catch (error) {
@@ -260,7 +260,7 @@ const InstructorPortal = () => {
         } else {
             try {
                 logger.debug('[handleDateClick] Calling api.addAvailability...');
-                const response = await api.post('/instructor/availability', { date: isoDateString });
+                const response = await api.post('/api/v1/instructor/availability', { date: isoDateString });
                 
                 if (response.data.success) {
                     logger.debug('[handleDateClick] api.addAvailability succeeded. Refreshing data...');
@@ -283,7 +283,7 @@ const InstructorPortal = () => {
     const handleMarkCompleteClick = async (class_id) => {
         logger.debug(`[handleMarkCompleteClick] Marking class ${class_id} as complete`);
         try {
-            const response = await api.post('/instructor/classes/complete', { course_id: class_id });
+            const response = await api.post('/api/v1/instructor/classes/complete', { course_id: class_id });
             setSnackbar({
                 open: true,
                 message: 'Class marked as complete successfully',
@@ -320,7 +320,7 @@ const InstructorPortal = () => {
         
         try {
             if (confirmAction === 'remove') {
-                const response = await api.delete('/instructor/availability', { data: { date: selectedDate } });
+                const response = await api.delete('/api/v1/instructor/availability', { data: { date: selectedDate } });
                 setAvailableDates(prev => {
                     const newSet = new Set(prev);
                     newSet.delete(selectedDate);
@@ -364,7 +364,7 @@ const InstructorPortal = () => {
         
         try {
             const newAttendance = !currentAttendance; // Toggle boolean value
-            const response = await api.post('/instructor/classes/students/attendance', { student_id, attendance: newAttendance });
+            const response = await api.post('/api/v1/instructor/classes/students/attendance', { student_id, attendance: newAttendance });
             
             setStudentsForAttendance(prev => 
                 prev.map(student => 

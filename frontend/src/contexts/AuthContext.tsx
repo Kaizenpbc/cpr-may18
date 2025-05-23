@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react';
 import type { User } from '../types/api';
 import { authService } from '../services/authService';
 import { tokenService } from '../services/tokenService';
+import socketService from '../services/socketService';
 
 interface AuthContextType {
   isAuthenticated: boolean;
@@ -10,6 +11,7 @@ interface AuthContextType {
   logout: () => Promise<void>;
   loading: boolean;
   setUser: (user: User | null) => void;
+  socket: any; // Socket.IO socket instance
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -26,6 +28,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [socket, setSocket] = useState<any>(null);
 
   const checkAuth = async () => {
     try {
@@ -40,16 +43,26 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (userData) {
         setUser(userData);
         setIsAuthenticated(true);
+        
+        // Initialize socket if not already done
+        if (!socket) {
+          const socketInstance = socketService.initializeSocket(token);
+          setSocket(socketInstance);
+        }
       } else {
         tokenService.clearTokens();
         setUser(null);
         setIsAuthenticated(false);
+        socketService.disconnectSocket();
+        setSocket(null);
       }
     } catch (error) {
       console.error('Error checking auth:', error);
       tokenService.clearTokens();
       setUser(null);
       setIsAuthenticated(false);
+      socketService.disconnectSocket();
+      setSocket(null);
     } finally {
       setLoading(false);
     }
@@ -65,6 +78,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       
       if (accessToken) {
         tokenService.setAccessToken(accessToken);
+        
+        // Initialize socket with the new token
+        const socketInstance = socketService.initializeSocket(accessToken);
+        setSocket(socketInstance);
       }
       
       setUser(userData);
@@ -79,14 +96,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     try {
       await authService.logout();
       tokenService.clearTokens();
+      socketService.disconnectSocket();
       setUser(null);
       setIsAuthenticated(false);
+      setSocket(null);
     } catch (error) {
       console.error('Logout error:', error);
       // Clear state even if logout API call fails
       tokenService.clearTokens();
+      socketService.disconnectSocket();
       setUser(null);
       setIsAuthenticated(false);
+      setSocket(null);
       throw error;
     }
   };
@@ -97,7 +118,8 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     isAuthenticated,
     login,
     logout,
-    loading
+    loading,
+    socket: socket || { on: () => {}, off: () => {}, emit: () => {} } // Provide safe fallback
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
