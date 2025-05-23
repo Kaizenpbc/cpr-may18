@@ -44,16 +44,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setUser(userData);
         setIsAuthenticated(true);
         
-        // Initialize socket if not already done
-        if (!socket) {
-          const socketInstance = socketService.initializeSocket(token);
-          setSocket(socketInstance);
-        }
+        // TODO: Initialize socket when backend socket.io server is implemented
+        // if (!socket) {
+        //   const socketInstance = socketService.initializeSocket(token);
+        //   setSocket(socketInstance);
+        // }
       } else {
         tokenService.clearTokens();
         setUser(null);
         setIsAuthenticated(false);
-        socketService.disconnectSocket();
+        // socketService.disconnectSocket(); // Disabled until socket server implemented
         setSocket(null);
       }
     } catch (error) {
@@ -61,7 +61,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       tokenService.clearTokens();
       setUser(null);
       setIsAuthenticated(false);
-      socketService.disconnectSocket();
+      // socketService.disconnectSocket(); // Disabled until socket server implemented
       setSocket(null);
     } finally {
       setLoading(false);
@@ -79,9 +79,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       if (accessToken) {
         tokenService.setAccessToken(accessToken);
         
-        // Initialize socket with the new token
-        const socketInstance = socketService.initializeSocket(accessToken);
-        setSocket(socketInstance);
+        // TODO: Initialize socket when backend socket.io server is implemented
+        // const socketInstance = socketService.initializeSocket(accessToken);
+        // setSocket(socketInstance);
+        console.log('Socket initialization disabled - backend socket.io server not yet implemented');
       }
       
       setUser(userData);
@@ -96,7 +97,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     try {
       await authService.logout();
       tokenService.clearTokens();
-      socketService.disconnectSocket();
+      // socketService.disconnectSocket(); // Disabled until socket server implemented
       setUser(null);
       setIsAuthenticated(false);
       setSocket(null);
@@ -104,7 +105,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       console.error('Logout error:', error);
       // Clear state even if logout API call fails
       tokenService.clearTokens();
-      socketService.disconnectSocket();
+      // socketService.disconnectSocket(); // Disabled until socket server implemented
       setUser(null);
       setIsAuthenticated(false);
       setSocket(null);
