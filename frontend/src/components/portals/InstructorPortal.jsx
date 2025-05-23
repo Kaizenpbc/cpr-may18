@@ -107,34 +107,6 @@ const InstructorPortal = () => {
         setSnackbar({ open: true, message, severity });
     };
 
-    useEffect(() => {
-        // Redirect to login if not authenticated
-        if (!isAuthenticated || !user) {
-            logger.debug('[InstructorPortal] User not authenticated, redirecting to login');
-            navigate('/login');
-            return;
-        }
-
-        logger.debug('[InstructorPortal] User authenticated, loading initial data and setting up socket');
-        loadInitialData();
-
-        logger.debug('[InstructorPortal] Setting up socket listener for course_assigned');
-        socket.on('course_assigned', (data) => {
-            logger.debug('[InstructorPortal] Received course_assigned event:', data);
-            setScheduledClasses(prev => [...prev, data]);
-            setSnackbar({
-                open: true,
-                message: 'New course assigned to you',
-                severity: 'success'
-            });
-        });
-
-        return () => {
-            logger.debug('[InstructorPortal] Cleaning up socket listener for course_assigned');
-            socket.off('course_assigned');
-        };
-    }, [isAuthenticated, user, loadInitialData, socket, navigate]);
-
     const loadInitialData = async () => {
         logger.debug('[InstructorPortal] Starting loadInitialData...');
         try {
@@ -170,6 +142,35 @@ const InstructorPortal = () => {
             setLoading(false);
         }
     };
+
+    // Authentication and data loading effect - must be after loadInitialData definition
+    useEffect(() => {
+        // Redirect to login if not authenticated
+        if (!isAuthenticated || !user) {
+            logger.debug('[InstructorPortal] User not authenticated, redirecting to login');
+            navigate('/login');
+            return;
+        }
+
+        logger.debug('[InstructorPortal] User authenticated, loading initial data and setting up socket');
+        loadInitialData();
+
+        logger.debug('[InstructorPortal] Setting up socket listener for course_assigned');
+        socket.on('course_assigned', (data) => {
+            logger.debug('[InstructorPortal] Received course_assigned event:', data);
+            setScheduledClasses(prev => [...prev, data]);
+            setSnackbar({
+                open: true,
+                message: 'New course assigned to you',
+                severity: 'success'
+            });
+        });
+
+        return () => {
+            logger.debug('[InstructorPortal] Cleaning up socket listener for course_assigned');
+            socket.off('course_assigned');
+        };
+    }, [isAuthenticated, user, socket, navigate]);
 
     const fetchScheduledClasses = useCallback(async () => {
         try {
