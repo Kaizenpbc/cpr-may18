@@ -108,12 +108,32 @@ const InstructorPortal = () => {
     };
 
     useEffect(() => {
-        if (!isAuthenticated) {
+        // Redirect to login if not authenticated
+        if (!isAuthenticated || !user) {
+            logger.debug('[InstructorPortal] User not authenticated, redirecting to login');
             navigate('/login');
             return;
         }
+
+        logger.debug('[InstructorPortal] User authenticated, loading initial data and setting up socket');
         loadInitialData();
-    }, [isAuthenticated]);
+
+        logger.debug('[InstructorPortal] Setting up socket listener for course_assigned');
+        socket.on('course_assigned', (data) => {
+            logger.debug('[InstructorPortal] Received course_assigned event:', data);
+            setScheduledClasses(prev => [...prev, data]);
+            setSnackbar({
+                open: true,
+                message: 'New course assigned to you',
+                severity: 'success'
+            });
+        });
+
+        return () => {
+            logger.debug('[InstructorPortal] Cleaning up socket listener for course_assigned');
+            socket.off('course_assigned');
+        };
+    }, [isAuthenticated, user, loadInitialData, socket, navigate]);
 
     const loadInitialData = async () => {
         logger.debug('[InstructorPortal] Starting loadInitialData...');
@@ -196,27 +216,6 @@ const InstructorPortal = () => {
             logger.debug(`[fetchStudentsForClass] Finished for course ${course_id}.`);
         }
     }, [showSnackbar]);
-
-    useEffect(() => {
-        logger.debug('[InstructorPortal] Component mounted, calling loadInitialData');
-        loadInitialData();
-
-        logger.debug('[InstructorPortal] Setting up socket listener for course_assigned');
-        socket.on('course_assigned', (data) => {
-            logger.debug('[InstructorPortal] Received course_assigned event:', data);
-            setScheduledClasses(prev => [...prev, data]);
-            setSnackbar({
-                open: true,
-                message: 'New course assigned to you',
-                severity: 'success'
-            });
-        });
-
-        return () => {
-            logger.debug('[InstructorPortal] Cleaning up socket listener for course_assigned');
-            socket.off('course_assigned');
-        };
-    }, [loadInitialData, socket]);
 
     useEffect(() => {
         logger.debug(`[useEffect View Change] View changed to: ${view}`);
