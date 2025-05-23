@@ -7,11 +7,6 @@ console.log('Loading Vite config');
 // https://vitejs.dev/config/
 export default defineConfig({
   plugins: [react()],
-  esbuild: {
-    loader: 'jsx',
-    include: /src\/.*\.[jt]sx?$/,
-    exclude: []
-  },
   optimizeDeps: {
     esbuildOptions: {
       loader: {
@@ -28,7 +23,9 @@ export default defineConfig({
       '@emotion/styled',
       '@tanstack/react-query',
       '@mui/x-date-pickers',
-      'date-fns'
+      'date-fns',
+      'papaparse',
+      'react-phone-number-input'
     ],
     force: true
   },
