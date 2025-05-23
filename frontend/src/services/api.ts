@@ -18,12 +18,18 @@ const api = axios.create({
 api.interceptors.request.use(
   (config) => {
     const token = tokenService.getAccessToken();
+    console.log('[Debug] API Interceptor - Token available:', !!token);
+    console.log('[Debug] API Interceptor - Request URL:', config.url);
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
+      console.log('[Debug] API Interceptor - Authorization header set');
+    } else {
+      console.log('[Debug] API Interceptor - No token available, skipping auth header');
     }
     return config;
   },
   (error) => {
+    console.error('[Debug] API Interceptor - Request error:', error);
     return Promise.reject(error);
   }
 );

@@ -53,6 +53,7 @@ import ScheduledClassesView from '../views/ScheduledClassesView';
 import CourseHistoryView from '../../components/views/CourseHistoryView';
 import InstructorPortalHeader from '../../components/headers/InstructorPortalHeader';
 import logger from '../../utils/logger';
+import { tokenService } from '../../services/tokenService';
 
 // Import the missing components
 const InstructorDashboard = lazy(() => import('../views/InstructorDashboard'));
@@ -102,6 +103,7 @@ const InstructorPortal = () => {
     const [currentDate, setCurrentDate] = useState(new Date());
     const [isLoadingArchive, setIsLoadingArchive] = useState(false);
     const [archiveError, setArchiveError] = useState('');
+    const [isInitializing, setIsInitializing] = useState(false);
 
     const showSnackbar = (message, severity = 'success') => {
         setSnackbar({ open: true, message, severity });
@@ -110,6 +112,16 @@ const InstructorPortal = () => {
     const loadInitialData = async () => {
         logger.debug('[InstructorPortal] Starting loadInitialData...');
         try {
+            // Verify token availability before making API calls
+            const token = tokenService.getAccessToken();
+            logger.debug('[InstructorPortal] Token available before API calls:', !!token);
+            if (!token) {
+                logger.error('[InstructorPortal] No token available, cannot make API calls');
+                await logout();
+                navigate('/login');
+                return;
+            }
+
             logger.debug('[InstructorPortal] Fetching availability...');
             const availabilityResponse = await api.get('/api/v1/instructor/availability');
             logger.debug('[InstructorPortal] Availability response:', availabilityResponse);
@@ -130,6 +142,7 @@ const InstructorPortal = () => {
         } catch (error) {
             logger.error('[InstructorPortal] Error loading initial data:', error);
             if (error.response?.status === 401) {
+                logger.error('[InstructorPortal] 401 Unauthorized - clearing auth and redirecting');
                 await logout();
                 navigate('/login');
                 return;
@@ -145,6 +158,12 @@ const InstructorPortal = () => {
 
     // Authentication and data loading effect - must be after loadInitialData definition
     useEffect(() => {
+        // Prevent multiple initializations
+        if (isInitializing) {
+            logger.debug('[InstructorPortal] Already initializing, skipping...');
+            return;
+        }
+
         // Redirect to login if not authenticated
         if (!isAuthenticated || !user) {
             logger.debug('[InstructorPortal] User not authenticated, redirecting to login');
@@ -152,23 +171,57 @@ const InstructorPortal = () => {
             return;
         }
 
-        logger.debug('[InstructorPortal] User authenticated, loading initial data and setting up socket');
-        loadInitialData();
+        // Add a small delay to ensure token is properly available in API interceptor
+        const initializePortal = async () => {
+            setIsInitializing(true);
+            logger.debug('[InstructorPortal] User authenticated, checking token availability...');
+            
+            // Verify token is available before proceeding
+            const token = tokenService.getAccessToken();
+            if (!token) {
+                logger.debug('[InstructorPortal] No token available, redirecting to login');
+                setIsInitializing(false);
+                navigate('/login');
+                return;
+            }
+            
+            logger.debug('[InstructorPortal] Token confirmed, loading initial data and setting up socket');
+            
+            // Increased delay to ensure API interceptor has the token
+            await new Promise(resolve => setTimeout(resolve, 300));
+            
+            // Double-check token is still available after delay
+            const tokenAfterDelay = tokenService.getAccessToken();
+            logger.debug('[InstructorPortal] Token still available after delay:', !!tokenAfterDelay);
+            
+            await loadInitialData();
+            setIsInitializing(false);
+        };
 
-        logger.debug('[InstructorPortal] Setting up socket listener for course_assigned');
-        socket.on('course_assigned', (data) => {
-            logger.debug('[InstructorPortal] Received course_assigned event:', data);
-            setScheduledClasses(prev => [...prev, data]);
-            setSnackbar({
-                open: true,
-                message: 'New course assigned to you',
-                severity: 'success'
+        initializePortal();
+
+        // Set up socket listeners only if socket is available
+        if (socket && typeof socket.on === 'function') {
+            logger.debug('[InstructorPortal] Setting up socket listener for course_assigned');
+            socket.on('course_assigned', (data) => {
+                logger.debug('[InstructorPortal] Received course_assigned event:', data);
+                setScheduledClasses(prev => [...prev, data]);
+                setSnackbar({
+                    open: true,
+                    message: 'New course assigned to you',
+                    severity: 'success'
+                });
             });
-        });
+        } else {
+            logger.debug('[InstructorPortal] Socket not available, skipping socket listener setup');
+        }
 
         return () => {
-            logger.debug('[InstructorPortal] Cleaning up socket listener for course_assigned');
-            socket.off('course_assigned');
+            if (socket && typeof socket.off === 'function') {
+                logger.debug('[InstructorPortal] Cleaning up socket listener for course_assigned');
+                socket.off('course_assigned');
+            }
+            setIsInitializing(false);
         };
     }, [isAuthenticated, user, socket, navigate]);
 

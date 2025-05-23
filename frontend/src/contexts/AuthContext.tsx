@@ -74,19 +74,32 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const login = async (username: string, password: string) => {
     try {
-      const { user: userData, accessToken } = await authService.login(username, password);
+      const { user: userData, accessToken, refreshToken } = await authService.login(username, password);
       
       if (accessToken) {
+        // Ensure token is stored
         tokenService.setAccessToken(accessToken);
+        
+        // Also store refresh token if provided
+        if (refreshToken) {
+          tokenService.setRefreshToken(refreshToken);
+        }
+        
+        // Verify token is actually stored
+        const storedToken = tokenService.getAccessToken();
+        console.log('[Debug] AuthContext - Token stored successfully:', !!storedToken);
+        
+        // Set state after token is confirmed
+        setUser(userData);
+        setIsAuthenticated(true);
         
         // TODO: Initialize socket when backend socket.io server is implemented
         // const socketInstance = socketService.initializeSocket(accessToken);
         // setSocket(socketInstance);
         console.log('Socket initialization disabled - backend socket.io server not yet implemented');
+      } else {
+        throw new Error('No access token received from server');
       }
-      
-      setUser(userData);
-      setIsAuthenticated(true);
     } catch (error) {
       console.error('Login error:', error);
       throw error;
