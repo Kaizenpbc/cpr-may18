@@ -107,7 +107,8 @@ export const authService = {
       api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       
       const response = await api.get('/api/v1/auth/me');
-      return response.data.data;
+      // Backend returns { success: true, data: { user: {...} } }
+      return response.data.data.user;
     } catch (error) {
       tokenService.clearTokens();
       delete api.defaults.headers.common['Authorization'];
