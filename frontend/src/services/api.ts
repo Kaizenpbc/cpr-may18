@@ -71,8 +71,16 @@ api.interceptors.response.use(
   }
 );
 
-// Helper function to extract data from API response
-const extractData = <T>(response: { data: ApiResponse<T> }): T => {
+// Helper function to extract data from API response (new format)
+const extractData = <T>(response: { data: { success: boolean; data: T; error?: any; message?: string } }): T => {
+  if (response.data.success === false) {
+    throw new Error(response.data.error?.message || response.data.message || 'API Error');
+  }
+  return response.data.data;
+};
+
+// Helper function for legacy API responses (old format)
+const extractLegacyData = <T>(response: { data: ApiResponse<T> }): T => {
   if (response.data.status === 'error') {
     throw new Error(response.data.message || 'API Error');
   }
@@ -88,7 +96,7 @@ export const fetchDashboardData = async (): Promise<DashboardMetrics> => {
     console.log('[Debug] api.ts - Base URL:', BASE_URL);
     console.log('[Debug] api.ts - Endpoint:', '/api/v1/dashboard');
     const response = await api.get<ApiResponse<DashboardMetrics>>('/api/v1/dashboard');
-    const data = extractData(response);
+    const data = extractLegacyData(response);
     console.log('[Debug] api.ts - Dashboard data received:', data);
     return data;
   } catch (error) {
@@ -148,7 +156,10 @@ export const courseAdminApi = {
 // Organization endpoints
 export const organizationApi = {
   requestCourse: (data: any) => api.post('/api/v1/organization/course-request', data),
-  getMyCourses: () => api.get('/api/v1/organization/courses'),
+  getMyCourses: async () => {
+    const response = await api.get('/api/v1/organization/courses');
+    return extractData(response);
+  },
   getCourseStudents: (courseId: number) => api.get(`/api/v1/organization/courses/${courseId}/students`),
 };
 
@@ -181,12 +192,12 @@ export const instructorApi = {
 // Additional exports for backward compatibility
 export const fetchInstructorAvailability = async (): Promise<Availability[]> => {
   const response = await api.get<ApiResponse<Availability[]>>('/api/v1/instructor/availability');
-  return extractData(response);
+  return extractLegacyData(response);
 };
 
 export const fetchSchedule = async (): Promise<Class[]> => {
   const response = await api.get<ApiResponse<Class[]>>('/api/v1/instructor/schedule');
-  return extractData(response);
+  return extractLegacyData(response);
 };
 
 // Export the api instance for use in other services

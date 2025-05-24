@@ -6,7 +6,7 @@ import dotenv from 'dotenv';
 import { errorHandler } from './utils/errorHandler';
 import v1Routes from './routes/v1';
 import authRoutes from './routes/v1/auth';
-import { apiLimiter, authLimiter, registerLimiter } from './middleware/rateLimiter';
+// import { apiLimiter, authLimiter, registerLimiter } from './middleware/rateLimiter';
 import { authenticateToken } from './middleware/authMiddleware';
 import path from 'path';
 import instructorRoutes from './routes/instructor';
@@ -58,10 +58,10 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   next(err);
 });
 
-// Apply rate limiting
-app.use('/api', apiLimiter);
-app.use('/api/v1/auth/login', authLimiter);
-app.use('/api/v1/auth/register', registerLimiter);
+// Apply rate limiting - COMMENTED OUT FOR TESTING
+// app.use('/api', apiLimiter);
+// app.use('/api/v1/auth/login', authLimiter);
+// app.use('/api/v1/auth/register', registerLimiter);
 
 // Routes
 app.use('/api/v1/auth', authRoutes);

@@ -69,7 +69,7 @@ const OrganizationPortal = () => {
             logger.info('Fetching organization courses...');
             const response = await api.organizationApi.getMyCourses();
             logger.info('Organization courses response:', response);
-            setOrganizationCourses(response.data || []);
+            setOrganizationCourses(response || []);
         } catch (err) {
             logger.error('Error fetching courses:', err);
             setCoursesError(err.message || 'Failed to load courses.');
