@@ -24,6 +24,8 @@ import {
     ListAlt as ListIcon,
     Logout as LogoutIcon,
     VpnKey as PasswordIcon,
+    School as ClassManagementIcon,
+    Groups as StudentsIcon
 } from '@mui/icons-material';
 import ScheduleCourseForm from '../forms/ScheduleCourseForm';
 import OrganizationCoursesTable from '../tables/OrganizationCoursesTable';
@@ -80,7 +82,7 @@ const OrganizationPortal = () => {
     }, []);
 
     useEffect(() => {
-        if (selectedView === 'myCourses') {
+        if (selectedView === 'myCourses' || selectedView === 'classManagement') {
             loadOrgCourses();
         }
     }, [selectedView, loadOrgCourses]);
@@ -133,6 +135,49 @@ const OrganizationPortal = () => {
             return <ScheduleCourseForm onCourseScheduled={handleCourseScheduled} />;
         }
 
+        if (selectedView === 'classManagement') {
+            if (isLoadingCourses) {
+                return <CircularProgress />;
+            }
+            if (coursesError) {
+                return <Alert severity="error">{coursesError}</Alert>;
+            }
+
+            const confirmedCourses = organizationCourses.filter(course => 
+                course.status?.toLowerCase() === 'confirmed'
+            );
+
+            return (
+                <Box>
+                    <Typography variant="h5" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <StudentsIcon color="primary" />
+                        Class Management
+                    </Typography>
+                    <Typography variant="body1" color="text.secondary" paragraph>
+                        Upload and manage student lists for your confirmed courses.
+                    </Typography>
+
+                    {confirmedCourses.length === 0 ? (
+                        <Alert severity="info" sx={{ mt: 2 }}>
+                            <Typography variant="body2">
+                                No confirmed courses available for student management. 
+                                Schedule a course first and wait for instructor assignment.
+                            </Typography>
+                        </Alert>
+                    ) : (
+                        <OrganizationCoursesTable 
+                            courses={confirmedCourses}
+                            onUploadStudentsClick={handleUploadStudentsClick} 
+                            onViewStudentsClick={handleViewStudentsClick}
+                            sortOrder={orgCoursesSortOrder}
+                            sortBy={orgCoursesSortBy}
+                            onSortRequest={handleOrgCoursesSortRequest}
+                        />
+                    )}
+                </Box>
+            );
+        }
+
         if (selectedView === 'myCourses') {
             if (isLoadingCourses) {
                 return <CircularProgress />;
@@ -155,14 +200,22 @@ const OrganizationPortal = () => {
             });
 
             return (
-                <OrganizationCoursesTable 
-                    courses={sortedOrgCourses}
-                    onUploadStudentsClick={handleUploadStudentsClick} 
-                    onViewStudentsClick={handleViewStudentsClick}
-                    sortOrder={orgCoursesSortOrder}
-                    sortBy={orgCoursesSortBy}
-                    onSortRequest={handleOrgCoursesSortRequest}
-                />
+                <Box>
+                    <Typography variant="h5" gutterBottom>
+                        My Courses
+                    </Typography>
+                    <Typography variant="body1" color="text.secondary" paragraph>
+                        View all your course requests and their current status.
+                    </Typography>
+                    <OrganizationCoursesTable 
+                        courses={sortedOrgCourses}
+                        onUploadStudentsClick={handleUploadStudentsClick} 
+                        onViewStudentsClick={handleViewStudentsClick}
+                        sortOrder={orgCoursesSortOrder}
+                        sortBy={orgCoursesSortBy}
+                        onSortRequest={handleOrgCoursesSortRequest}
+                    />
+                </Box>
             );
         }
 
@@ -242,6 +295,28 @@ const OrganizationPortal = () => {
                                 <ListIcon />
                             </ListItemIcon>
                             <ListItemText primary="My Courses" />
+                        </ListItem>
+                        <ListItem 
+                            component="div" 
+                            selected={selectedView === 'classManagement'}
+                            onClick={() => setSelectedView('classManagement')}
+                            sx={{
+                                cursor: 'pointer', 
+                                py: 1.5, 
+                                backgroundColor: selectedView === 'classManagement' ? 'primary.light' : 'transparent',
+                                color: selectedView === 'classManagement' ? 'primary.contrastText' : 'inherit',
+                                '& .MuiListItemIcon-root': {
+                                    color: selectedView === 'classManagement' ? 'primary.contrastText' : 'inherit',
+                                },
+                                '&:hover': {
+                                    backgroundColor: selectedView === 'classManagement' ? 'primary.main' : 'action.hover',
+                                }
+                            }}
+                        >
+                            <ListItemIcon>
+                                <ClassManagementIcon />
+                            </ListItemIcon>
+                            <ListItemText primary="Class Management" />
                         </ListItem>
                         <Divider />
                         <ListItem 

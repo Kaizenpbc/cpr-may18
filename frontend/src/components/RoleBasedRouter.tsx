@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import { CircularProgress, Box, Typography } from '@mui/material';
 import InstructorPortal from './portals/InstructorPortal';
@@ -8,6 +9,25 @@ import SuperAdminPortal from './portals/SuperAdminPortal';
 
 const RoleBasedRouter: React.FC = () => {
   const { user, loading } = useAuth();
+  const navigate = useNavigate();
+
+  useEffect(() => {
+    // Redirect users to their role-specific URLs for better bookmarking and refresh behavior
+    if (user && !loading) {
+      const roleRoutes = {
+        instructor: '/instructor',
+        organization: '/organization', 
+        admin: '/admin',
+        superadmin: '/superadmin'
+      };
+
+      const targetRoute = roleRoutes[user.role as keyof typeof roleRoutes];
+      if (targetRoute) {
+        console.log(`[Debug] RoleBasedRouter - Redirecting ${user.role} to ${targetRoute}`);
+        navigate(targetRoute, { replace: true });
+      }
+    }
+  }, [user, loading, navigate]);
 
   if (loading) {
     return (
@@ -25,7 +45,8 @@ const RoleBasedRouter: React.FC = () => {
     );
   }
 
-  // Route users to appropriate portal based on their role
+  // For direct access (when not redirecting), still render the appropriate portal
+  // This ensures the component works even if the redirect hasn't happened yet
   switch (user.role) {
     case 'instructor':
       return <InstructorPortal />;

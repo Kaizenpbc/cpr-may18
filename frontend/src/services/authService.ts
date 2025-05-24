@@ -101,17 +101,35 @@ export const authService = {
   async checkAuth() {
     try {
       const token = tokenService.getAccessToken();
-      if (!token) return null;
+      if (!token) {
+        console.log('[Debug] authService - No access token found');
+        return null;
+      }
 
       // Ensure token is set in headers
       api.defaults.headers.common['Authorization'] = `Bearer ${token}`;
       
+      console.log('[Debug] authService - Checking authentication with backend');
       const response = await api.get('/api/v1/auth/me');
+      
       // Backend returns { success: true, data: { user: {...} } }
-      return response.data.data.user;
-    } catch (error) {
-      tokenService.clearTokens();
-      delete api.defaults.headers.common['Authorization'];
+      const userData = response.data.data.user;
+      console.log('[Debug] authService - Authentication check successful for user:', userData.username);
+      return userData;
+    } catch (error: any) {
+      console.error('[Debug] authService - Authentication check failed:', error.response?.status, error.message);
+      
+      // Only clear tokens if we get a 401 (unauthorized) or 403 (forbidden)
+      // Other errors (network issues, server errors) should not clear valid tokens
+      if (error.response?.status === 401 || error.response?.status === 403) {
+        console.log('[Debug] authService - Clearing tokens due to authentication failure');
+        tokenService.clearTokens();
+        delete api.defaults.headers.common['Authorization'];
+      } else {
+        console.log('[Debug] authService - Network/server error, keeping tokens');
+        // Don't clear tokens for network errors - user might just be offline
+      }
+      
       return null;
     }
   },

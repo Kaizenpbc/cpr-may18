@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { api } from '../../services/api';
 import {
@@ -45,6 +45,8 @@ import {
     Event as CourseIcon,
     Logout as LogoutIcon,
     VpnKey as PasswordIcon,
+    Warning as WarningIcon,
+    CheckCircle as SuccessIcon
 } from '@mui/icons-material';
 import { formatDate, formatDisplayDate } from '../../utils/formatters';
 import ConfirmDialog from '../dialogs/ConfirmDialog';
@@ -58,7 +60,7 @@ import { tokenService } from '../../services/tokenService';
 // Import the missing components
 const InstructorDashboard = lazy(() => import('../views/InstructorDashboard'));
 const MyClassesView = lazy(() => import('../views/instructor/MyClassesView'));
-const AttendanceView = lazy(() => import('../views/AttendanceView'));
+const AttendanceView = lazy(() => import('../views/instructor/AttendanceView'));
 const InstructorArchiveTable = lazy(() => import('../tables/InstructorArchiveTable'));
 
 const drawerWidth = 240;
@@ -82,7 +84,15 @@ const ontarioHolidays2024 = new Set([
 const InstructorPortal = () => {
     const { isAuthenticated, logout, socket, user } = useAuth();
     const navigate = useNavigate();
-    const [view, setView] = useState('availability');
+    const location = useLocation();
+    
+    // Get current view from URL path
+    const getCurrentView = () => {
+        const pathSegments = location.pathname.split('/');
+        const viewSegment = pathSegments[pathSegments.length - 1];
+        return viewSegment || 'dashboard'; // Default to dashboard
+    };
+
     const [selectedDate, setSelectedDate] = useState(null);
     const [showConfirmDialog, setShowConfirmDialog] = useState(false);
     const [confirmAction, setConfirmAction] = useState(null);
@@ -104,6 +114,10 @@ const InstructorPortal = () => {
     const [isLoadingArchive, setIsLoadingArchive] = useState(false);
     const [archiveError, setArchiveError] = useState('');
     const [isInitializing, setIsInitializing] = useState(false);
+    const [showCompleteDialog, setShowCompleteDialog] = useState(false);
+    const [classToComplete, setClassToComplete] = useState(null);
+    const [isCompleting, setIsCompleting] = useState(false);
+    const [completedClasses, setCompletedClasses] = useState([]);
 
     const showSnackbar = (message, severity = 'success') => {
         setSnackbar({ open: true, message, severity });
@@ -244,13 +258,15 @@ const InstructorPortal = () => {
         try {
             const response = await api.get('/api/v1/instructor/classes/completed');
             if (response.data.success) {
-                setArchivedCourses(response.data.courses);
+                setCompletedClasses(response.data.data.classes || []);
+                setArchivedCourses(response.data.data.classes || []); // For backward compatibility
             } else {
-                throw new Error(response.data.message || 'Failed to fetch archived courses');
+                throw new Error(response.data.message || 'Failed to fetch completed courses');
             }
         } catch (error) {
-            logger.error('Error fetching archived courses:', error);
-            setArchiveError(error.message || 'Failed to fetch archived courses');
+            logger.error('Error fetching completed courses:', error);
+            setArchiveError(error.message || 'Failed to fetch completed courses');
+            setCompletedClasses([]);
             setArchivedCourses([]);
         } finally {
             setIsLoadingArchive(false);
@@ -271,22 +287,25 @@ const InstructorPortal = () => {
         }
     }, [showSnackbar]);
 
+    // Handle view changes based on URL
     useEffect(() => {
-        logger.debug(`[useEffect View Change] View changed to: ${view}`);
+        const currentView = getCurrentView();
+        logger.debug(`[useEffect View Change] View changed to: ${currentView}`);
+        
         // Reset states when view changes
         setStudentsForAttendance([]);
         setClassToManage(null); 
 
         // Load data specific to the selected view
-        if (view === 'archive') {
+        if (currentView === 'archive') {
             fetchArchivedCourses();
-        } else if (view === 'attendance') {
+        } else if (currentView === 'attendance') {
             if (scheduledClasses.length === 1) {
                 logger.debug('[useEffect View Change] Auto-selecting the only scheduled class for attendance.');
                 setClassToManage(scheduledClasses[0]);
             }
         }
-    }, [view, fetchArchivedCourses, scheduledClasses]);
+    }, [location.pathname, fetchArchivedCourses, scheduledClasses]);
 
     useEffect(() => {
         if (classToManage) {
@@ -333,30 +352,104 @@ const InstructorPortal = () => {
         setClassToManage(class_id);
     };
 
-    const handleMarkCompleteClick = async (class_id) => {
-        logger.debug(`[handleMarkCompleteClick] Marking class ${class_id} as complete`);
-        try {
-            const response = await api.post('/api/v1/instructor/classes/complete', { course_id: class_id });
-            setSnackbar({
-                open: true,
-                message: 'Class marked as complete successfully',
-                severity: 'success'
-            });
-            fetchScheduledClasses();
-        } catch (error) {
-            logger.error('Error marking class as complete:', error);
-            setSnackbar({
-                open: true,
-                message: 'Failed to mark class as complete',
-                severity: 'error'
-            });
+    /**
+     * Commercial-grade course completion handler with comprehensive validation and UX
+     * @param {Object} classItem - The class item to mark as complete
+     */
+    const handleMarkCompleteClick = useCallback(async (classItem) => {
+        logger.debug('[handleMarkCompleteClick] Class selected for completion:', classItem);
+        
+        // Pre-validation checks
+        if (!classItem || !classItem.course_id) {
+            showSnackbar('Invalid class selected', 'error');
+            return;
         }
-    };
+
+        // Check if class is in the past or today
+        const classDate = new Date(classItem.displayDate);
+        const today = new Date();
+        const isToday = classDate.toDateString() === today.toDateString();
+        const isPast = classDate < today.setHours(0, 0, 0, 0);
+
+        if (!isPast && !isToday) {
+            showSnackbar('Cannot complete a future class. Please wait until the class date.', 'warning');
+            return;
+        }
+
+        setClassToComplete(classItem);
+        setShowCompleteDialog(true);
+    }, [showSnackbar]);
+
+    /**
+     * Execute course completion with full transaction handling
+     */
+    const handleConfirmComplete = useCallback(async () => {
+        if (!classToComplete) return;
+
+        setIsCompleting(true);
+        
+        try {
+            logger.info('[handleConfirmComplete] Marking class as complete:', classToComplete.course_id);
+            
+            const response = await api.put(`/api/v1/instructor/classes/${classToComplete.course_id}/complete`, {
+                generateCertificates: false // Future enhancement
+            });
+
+            if (response.data.success) {
+                // Show success message with completion details
+                const completionData = response.data.data;
+                showSnackbar(
+                    `Class completed successfully! ${completionData.students_attended} students attended.`, 
+                    'success'
+                );
+
+                // Refresh data to reflect changes
+                await Promise.all([
+                    loadInitialData(), // Refresh current classes
+                    fetchArchivedCourses() // Refresh archive
+                ]);
+
+                logger.info('[handleConfirmComplete] Class completion successful');
+            } else {
+                throw new Error(response.data.message || 'Failed to complete class');
+            }
+
+        } catch (error) {
+            logger.error('[handleConfirmComplete] Error completing class:', error);
+            
+            // Handle specific error cases with user-friendly messages
+            if (error.response?.status === 400) {
+                const errorMessage = error.response.data.message || 'Invalid request';
+                if (errorMessage.includes('attendance')) {
+                    showSnackbar(
+                        'Please mark attendance for all students before completing the class.', 
+                        'warning'
+                    );
+                } else if (errorMessage.includes('future')) {
+                    showSnackbar('Cannot complete a future class.', 'warning');
+                } else {
+                    showSnackbar(errorMessage, 'error');
+                }
+            } else if (error.response?.status === 404) {
+                showSnackbar('Class not found or access denied.', 'error');
+            } else if (error.response?.status === 409) {
+                showSnackbar('Class is already marked as completed.', 'info');
+            } else {
+                showSnackbar(
+                    error.response?.data?.message || 'Failed to complete class. Please try again.', 
+                    'error'
+                );
+            }
+        } finally {
+            setIsCompleting(false);
+            setShowCompleteDialog(false);
+            setClassToComplete(null);
+        }
+    }, [classToComplete, showSnackbar, loadInitialData, fetchArchivedCourses]);
 
     const handleAttendanceClick = (class_id) => {
         logger.debug(`[handleAttendanceClick] Class ID: ${class_id}`);
         setClassToManage(class_id);
-        setView('attendance');
     };
 
     const handleClassChange = (event) => {
@@ -427,6 +520,9 @@ const InstructorPortal = () => {
                 )
             );
             
+            // Refresh scheduled classes to update the attendance count
+            await fetchScheduledClasses();
+            
             showSnackbar('Attendance updated successfully');
         } catch (error) {
             logger.error('Error updating attendance:', error);
@@ -476,60 +572,13 @@ const InstructorPortal = () => {
         return combined;
     }, [scheduledClasses, availableDates]);
 
+    // Navigation helper function
     const handleViewChange = (view) => {
-        setView(view);
+        navigate(`/instructor/${view}`);
     };
 
-    const renderSelectedView = () => {
-        switch (view) {
-            case 'dashboard':
-                return <InstructorDashboard />;
-            case 'availability':
-                return (
-                    <AvailabilityView
-                        availableDates={Array.from(availableDates)}
-                        scheduledClasses={scheduledClasses}
-                        ontarioHolidays2024={[]}
-                        handleDateClick={handleDateClick}
-                        currentDate={currentDate}
-                        handlePreviousMonth={handlePreviousMonth}
-                        handleNextMonth={handleNextMonth}
-                    />
-                );
-            case 'classes':
-                return (
-                    <MyClassesView
-                        combinedItems={combinedItems}
-                        onAttendanceClick={handleAttendanceClick}
-                    />
-                );
-            case 'attendance':
-                return (
-                    <AttendanceView
-                        scheduledClasses={scheduledClasses}
-                        classToManage={classToManage}
-                        studentsForAttendance={studentsForAttendance}
-                        isLoadingStudents={false}
-                        studentsError=""
-                        handleClassChange={handleClassChange}
-                        handleAttendanceChange={handleAttendanceChange}
-                        handleMarkCompleteClick={handleMarkCompleteClick}
-                    />
-                );
-            case 'archive':
-                return isLoadingArchive ? (
-                    <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
-                        <CircularProgress />
-                    </Box>
-                ) : archiveError ? (
-                    <Alert severity="error">{archiveError}</Alert>
-                ) : (
-                    <InstructorArchiveTable courses={archivedCourses} />
-                );
-            default:
-                return <InstructorDashboard />;
-        }
-    };
+    // Get current view for highlighting navigation
+    const currentView = getCurrentView();
 
     logger.debug('[InstructorPortal Render] Snackbar state:', snackbar);
 
@@ -581,18 +630,18 @@ const InstructorPortal = () => {
                         <List>
                             <ListItem 
                                 component="div"
-                                selected={view === 'dashboard'}
+                                selected={currentView === 'dashboard'}
                                 onClick={() => handleViewChange('dashboard')}
                                 sx={{
                                     cursor: 'pointer', 
                                     py: 1.5, 
-                                    backgroundColor: view === 'dashboard' ? 'primary.light' : 'transparent',
-                                    color: view === 'dashboard' ? 'primary.contrastText' : 'inherit',
+                                    backgroundColor: currentView === 'dashboard' ? 'primary.light' : 'transparent',
+                                    color: currentView === 'dashboard' ? 'primary.contrastText' : 'inherit',
                                     '& .MuiListItemIcon-root': {
-                                        color: view === 'dashboard' ? 'primary.contrastText' : 'inherit',
+                                        color: currentView === 'dashboard' ? 'primary.contrastText' : 'inherit',
                                     },
                                     '&:hover': {
-                                        backgroundColor: view === 'dashboard' ? 'primary.main' : 'action.hover',
+                                        backgroundColor: currentView === 'dashboard' ? 'primary.main' : 'action.hover',
                                     }
                                 }}
                             >
@@ -603,18 +652,18 @@ const InstructorPortal = () => {
                             </ListItem>
                             <ListItem 
                                 component="div"
-                                selected={view === 'availability'}
+                                selected={currentView === 'availability'}
                                 onClick={() => handleViewChange('availability')}
                                 sx={{
                                     cursor: 'pointer', 
                                     py: 1.5, 
-                                    backgroundColor: view === 'availability' ? 'primary.light' : 'transparent',
-                                    color: view === 'availability' ? 'primary.contrastText' : 'inherit',
+                                    backgroundColor: currentView === 'availability' ? 'primary.light' : 'transparent',
+                                    color: currentView === 'availability' ? 'primary.contrastText' : 'inherit',
                                     '& .MuiListItemIcon-root': {
-                                        color: view === 'availability' ? 'primary.contrastText' : 'inherit',
+                                        color: currentView === 'availability' ? 'primary.contrastText' : 'inherit',
                                     },
                                     '&:hover': {
-                                        backgroundColor: view === 'availability' ? 'primary.main' : 'action.hover',
+                                        backgroundColor: currentView === 'availability' ? 'primary.main' : 'action.hover',
                                     }
                                 }}
                             >
@@ -625,18 +674,18 @@ const InstructorPortal = () => {
                             </ListItem>
                             <ListItem 
                                 component="div"
-                                selected={view === 'classes'}
+                                selected={currentView === 'classes'}
                                 onClick={() => handleViewChange('classes')}
                                 sx={{
                                     cursor: 'pointer', 
                                     py: 1.5, 
-                                    backgroundColor: view === 'classes' ? 'primary.light' : 'transparent',
-                                    color: view === 'classes' ? 'primary.contrastText' : 'inherit',
+                                    backgroundColor: currentView === 'classes' ? 'primary.light' : 'transparent',
+                                    color: currentView === 'classes' ? 'primary.contrastText' : 'inherit',
                                     '& .MuiListItemIcon-root': {
-                                        color: view === 'classes' ? 'primary.contrastText' : 'inherit',
+                                        color: currentView === 'classes' ? 'primary.contrastText' : 'inherit',
                                     },
                                     '&:hover': {
-                                        backgroundColor: view === 'classes' ? 'primary.main' : 'action.hover',
+                                        backgroundColor: currentView === 'classes' ? 'primary.main' : 'action.hover',
                                     }
                                 }}
                             >
@@ -647,18 +696,18 @@ const InstructorPortal = () => {
                             </ListItem>
                             <ListItem 
                                 component="div"
-                                selected={view === 'attendance'}
+                                selected={currentView === 'attendance'}
                                 onClick={() => handleViewChange('attendance')}
                                 sx={{
                                     cursor: 'pointer', 
                                     py: 1.5, 
-                                    backgroundColor: view === 'attendance' ? 'primary.light' : 'transparent',
-                                    color: view === 'attendance' ? 'primary.contrastText' : 'inherit',
+                                    backgroundColor: currentView === 'attendance' ? 'primary.light' : 'transparent',
+                                    color: currentView === 'attendance' ? 'primary.contrastText' : 'inherit',
                                     '& .MuiListItemIcon-root': {
-                                        color: view === 'attendance' ? 'primary.contrastText' : 'inherit',
+                                        color: currentView === 'attendance' ? 'primary.contrastText' : 'inherit',
                                     },
                                     '&:hover': {
-                                        backgroundColor: view === 'attendance' ? 'primary.main' : 'action.hover',
+                                        backgroundColor: currentView === 'attendance' ? 'primary.main' : 'action.hover',
                                     }
                                 }}
                             >
@@ -669,18 +718,18 @@ const InstructorPortal = () => {
                             </ListItem>
                             <ListItem 
                                 component="div"
-                                selected={view === 'archive'}
+                                selected={currentView === 'archive'}
                                 onClick={() => handleViewChange('archive')}
                                 sx={{
                                     cursor: 'pointer', 
                                     py: 1.5, 
-                                    backgroundColor: view === 'archive' ? 'primary.light' : 'transparent',
-                                    color: view === 'archive' ? 'primary.contrastText' : 'inherit',
+                                    backgroundColor: currentView === 'archive' ? 'primary.light' : 'transparent',
+                                    color: currentView === 'archive' ? 'primary.contrastText' : 'inherit',
                                     '& .MuiListItemIcon-root': {
-                                        color: view === 'archive' ? 'primary.contrastText' : 'inherit',
+                                        color: currentView === 'archive' ? 'primary.contrastText' : 'inherit',
                                     },
                                     '&:hover': {
-                                        backgroundColor: view === 'archive' ? 'primary.main' : 'action.hover',
+                                        backgroundColor: currentView === 'archive' ? 'primary.main' : 'action.hover',
                                     }
                                 }}
                             >
@@ -740,7 +789,57 @@ const InstructorPortal = () => {
                                         <CircularProgress />
                                     </Box>
                                 }>
-                                    {renderSelectedView()}
+                                    <Routes>
+                                        <Route path="/" element={<InstructorDashboard />} />
+                                        <Route path="/dashboard" element={<InstructorDashboard />} />
+                                        <Route path="/availability" element={
+                                            <AvailabilityView
+                                                availableDates={Array.from(availableDates)}
+                                                scheduledClasses={scheduledClasses}
+                                                ontarioHolidays2024={[]}
+                                                handleDateClick={handleDateClick}
+                                                currentDate={currentDate}
+                                                handlePreviousMonth={handlePreviousMonth}
+                                                handleNextMonth={handleNextMonth}
+                                            />
+                                        } />
+                                        <Route path="/classes" element={
+                                            <MyClassesView
+                                                combinedItems={combinedItems}
+                                                onAttendanceClick={handleAttendanceClick}
+                                                onMarkCompleteClick={handleMarkCompleteClick}
+                                            />
+                                        } />
+                                        <Route path="/attendance" element={
+                                            <AttendanceView onAttendanceUpdate={fetchScheduledClasses} />
+                                        } />
+                                        <Route path="/archive" element={
+                                            <>
+                                                {isLoadingArchive ? (
+                                                    <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', p: 4 }}>
+                                                        <CircularProgress />
+                                                        <Typography sx={{ ml: 2 }}>Loading completed classes...</Typography>
+                                                    </Box>
+                                                ) : archiveError ? (
+                                                    <Box sx={{ p: 3 }}>
+                                                        <Alert severity="error" sx={{ mb: 2 }}>
+                                                            <Typography variant="h6">Error Loading Archive</Typography>
+                                                            <Typography>{archiveError}</Typography>
+                                                        </Alert>
+                                                        <Button 
+                                                            variant="outlined" 
+                                                            onClick={fetchArchivedCourses}
+                                                            startIcon={<ClassIcon />}
+                                                        >
+                                                            Retry Loading
+                                                        </Button>
+                                                    </Box>
+                                                ) : (
+                                                    <InstructorArchiveTable courses={completedClasses} />
+                                                )}
+                                            </>
+                                        } />
+                                    </Routes>
                                 </Suspense>
                             </>
                         )}
@@ -756,6 +855,98 @@ const InstructorPortal = () => {
                         <Button onClick={() => setShowConfirmDialog(false)}>Cancel</Button>
                         <Button onClick={handleConfirmAction} color="primary">
                             Confirm
+                        </Button>
+                    </DialogActions>
+                </Dialog>
+
+                {/* Course Completion Confirmation Dialog */}
+                <Dialog 
+                    open={showCompleteDialog} 
+                    onClose={() => !isCompleting && setShowCompleteDialog(false)}
+                    maxWidth="sm"
+                    fullWidth
+                >
+                    <DialogTitle sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <WarningIcon color="warning" />
+                        Confirm Course Completion
+                    </DialogTitle>
+                    <DialogContent>
+                        {classToComplete && (
+                            <Box sx={{ py: 1 }}>
+                                <Typography variant="body1" gutterBottom>
+                                    Are you sure you want to mark this class as <strong>completed</strong>?
+                                </Typography>
+                                
+                                <Paper sx={{ p: 2, mt: 2, bgcolor: 'background.default' }}>
+                                    <Typography variant="h6" gutterBottom>
+                                        Class Details:
+                                    </Typography>
+                                    <Grid container spacing={1}>
+                                        <Grid item xs={6}>
+                                            <Typography variant="body2" color="text.secondary">
+                                                <strong>Date:</strong> {classToComplete.displayDate}
+                                            </Typography>
+                                        </Grid>
+                                        <Grid item xs={6}>
+                                            <Typography variant="body2" color="text.secondary">
+                                                <strong>Course:</strong> {classToComplete.coursetypename}
+                                            </Typography>
+                                        </Grid>
+                                        <Grid item xs={6}>
+                                            <Typography variant="body2" color="text.secondary">
+                                                <strong>Organization:</strong> {classToComplete.organizationname}
+                                            </Typography>
+                                        </Grid>
+                                        <Grid item xs={6}>
+                                            <Typography variant="body2" color="text.secondary">
+                                                <strong>Students:</strong> {classToComplete.studentsattendance} attended
+                                            </Typography>
+                                        </Grid>
+                                        <Grid item xs={12}>
+                                            <Typography variant="body2" color="text.secondary">
+                                                <strong>Location:</strong> {classToComplete.location}
+                                            </Typography>
+                                        </Grid>
+                                    </Grid>
+                                </Paper>
+
+                                <Alert severity="info" sx={{ mt: 2 }}>
+                                    <Typography variant="body2">
+                                        <strong>This action will:</strong>
+                                    </Typography>
+                                    <ul style={{ margin: '8px 0', paddingLeft: '20px' }}>
+                                        <li>Remove the class from your "My Classes" view</li>
+                                        <li>Move the class to your "Archive" section</li>
+                                        <li>Mark the course as completed in the system</li>
+                                        <li>Cannot be undone once completed</li>
+                                    </ul>
+                                </Alert>
+
+                                <Alert severity="warning" sx={{ mt: 1 }}>
+                                    <Typography variant="body2">
+                                        Please ensure all student attendance has been marked before completing.
+                                    </Typography>
+                                </Alert>
+                            </Box>
+                        )}
+                    </DialogContent>
+                    <DialogActions sx={{ p: 2 }}>
+                        <Button 
+                            onClick={() => setShowCompleteDialog(false)} 
+                            disabled={isCompleting}
+                            color="inherit"
+                        >
+                            Cancel
+                        </Button>
+                        <Button 
+                            onClick={handleConfirmComplete} 
+                            color="success"
+                            variant="contained"
+                            disabled={isCompleting}
+                            startIcon={isCompleting ? <CircularProgress size={16} /> : <SuccessIcon />}
+                            sx={{ minWidth: 140 }}
+                        >
+                            {isCompleting ? 'Completing...' : 'Mark Complete'}
                         </Button>
                     </DialogActions>
                 </Dialog>

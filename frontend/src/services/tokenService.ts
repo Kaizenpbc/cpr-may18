@@ -2,6 +2,7 @@ console.log('Initializing tokenService');
 
 const ACCESS_TOKEN_KEY = 'accessToken';
 const REFRESH_TOKEN_KEY = 'refreshToken';
+const LAST_LOCATION_KEY = 'lastLocation';
 
 /**
  * Token service that handles access token storage and retrieval.
@@ -41,15 +42,40 @@ export const tokenService = {
     },
 
     /**
+     * Saves the current location for restoration after login
+     * @param location - The current pathname to save
+     */
+    saveCurrentLocation(location: string): void {
+        // Don't save login/auth pages
+        if (!location.includes('/login') && !location.includes('/forgot-password') && !location.includes('/reset-password')) {
+            localStorage.setItem(LAST_LOCATION_KEY, location);
+        }
+    },
+
+    /**
+     * Gets the saved location for restoration after login
+     * @returns The saved location or null
+     */
+    getSavedLocation(): string | null {
+        return localStorage.getItem(LAST_LOCATION_KEY);
+    },
+
+    /**
+     * Clears the saved location
+     */
+    clearSavedLocation(): void {
+        localStorage.removeItem(LAST_LOCATION_KEY);
+    },
+
+    /**
      * Clears both access and refresh tokens from localStorage.
+     * This version does NOT force redirect - let React Router handle navigation
      */
     clearTokens(): void {
         localStorage.removeItem(ACCESS_TOKEN_KEY);
         localStorage.removeItem(REFRESH_TOKEN_KEY);
-        // Also clear any other auth-related storage
-        localStorage.clear();
-        // Force reload to clear any remaining state
-        window.location.href = '/login';
+        // Note: We do NOT clear all localStorage or force navigation
+        // This allows the app to maintain state and handle routing properly
     },
 
     /**
@@ -72,13 +98,19 @@ export const tokenService = {
     /**
      * Force clear all authentication and redirect to login
      * Can be called from browser console: tokenService.forceLogout()
+     * This is the only method that should force navigation
      */
     forceLogout(): void {
+        // Save current location before clearing
+        this.saveCurrentLocation(window.location.pathname);
+        
+        // Clear tokens
         this.clearTokens();
-        // Clear all localStorage
+        
+        // Clear all localStorage and sessionStorage
         localStorage.clear();
-        // Clear sessionStorage too
         sessionStorage.clear();
+        
         // Force a hard refresh to login
         window.location.href = '/login';
     }

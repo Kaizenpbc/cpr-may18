@@ -1,5 +1,4 @@
-import { Pool, PoolConfig } from 'pg';
-import type { PoolConfig, QueryResult, QueryResultRow } from 'pg';
+import { Pool, PoolConfig, QueryResult, QueryResultRow } from 'pg';
 import { retry } from '@lifeomic/attempt';
 import dotenv from 'dotenv';
 import bcrypt from 'bcrypt';
@@ -99,6 +98,20 @@ const initializeDatabase = async () => {
           WHERE table_name = 'classes' AND column_name = 'location'
         ) THEN 
           ALTER TABLE classes ADD COLUMN location VARCHAR(255);
+        END IF;
+      END $$;
+    `);
+
+    // Add completed_at column to classes table if it doesn't exist
+    await pool.query(`
+      DO $$ 
+      BEGIN 
+        IF NOT EXISTS (
+          SELECT 1 
+          FROM information_schema.columns 
+          WHERE table_name = 'classes' AND column_name = 'completed_at'
+        ) THEN 
+          ALTER TABLE classes ADD COLUMN completed_at TIMESTAMP WITH TIME ZONE;
         END IF;
       END $$;
     `);
@@ -279,6 +292,72 @@ const initializeDatabase = async () => {
       VALUES ('orguser', 'org@cpr.com', $1, 'organization', 1)
       ON CONFLICT (username) DO NOTHING;
     `, [orgPasswordHash]);
+
+    // Add completed_at column to course_requests table if it doesn't exist
+    await pool.query(`
+      DO $$ 
+      BEGIN 
+        IF NOT EXISTS (
+          SELECT 1 
+          FROM information_schema.columns 
+          WHERE table_name = 'course_requests' AND column_name = 'completed_at'
+        ) THEN 
+          ALTER TABLE course_requests ADD COLUMN completed_at TIMESTAMP WITH TIME ZONE;
+        END IF;
+      END $$;
+    `);
+
+    // Create activity_logs table for audit trail
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS activity_logs (
+        id SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        action VARCHAR(100) NOT NULL,
+        resource_type VARCHAR(50) NOT NULL,
+        resource_id VARCHAR(50) NOT NULL,
+        details JSONB,
+        ip_address INET,
+        user_agent TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Create index on activity_logs for better performance
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_activity_logs_user_id 
+      ON activity_logs(user_id);
+    `);
+
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_activity_logs_action 
+      ON activity_logs(action);
+    `);
+
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_activity_logs_created_at 
+      ON activity_logs(created_at);
+    `);
+
+    // Create course_students table if it doesn't exist
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS course_students (
+        id SERIAL PRIMARY KEY,
+        course_request_id INTEGER NOT NULL REFERENCES course_requests(id) ON DELETE CASCADE,
+        first_name VARCHAR(255) NOT NULL,
+        last_name VARCHAR(255) NOT NULL,
+        email VARCHAR(255),
+        attendance_marked BOOLEAN DEFAULT FALSE,
+        attended BOOLEAN DEFAULT FALSE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Create index on course_request_id for better performance
+    await pool.query(`
+      CREATE INDEX IF NOT EXISTS idx_course_students_course_request_id 
+      ON course_students(course_request_id);
+    `);
 
     console.log('Database tables initialized successfully');
   } catch (error) {

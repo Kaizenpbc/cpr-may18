@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
 import type { User } from '../types/api';
 import { authService } from '../services/authService';
 import { tokenService } from '../services/tokenService';
@@ -29,18 +30,27 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [socket, setSocket] = useState<any>(null);
+  
+  const location = useLocation();
+  const navigate = useNavigate();
 
   const checkAuth = async () => {
     try {
+      // Save current location (except for auth pages)
+      tokenService.saveCurrentLocation(location.pathname);
+      
       // Check if we have a token
       const token = tokenService.getAccessToken();
       if (!token) {
+        console.log('[Debug] AuthContext - No token found, user not authenticated');
         setLoading(false);
         return;
       }
 
+      console.log('[Debug] AuthContext - Token found, checking authentication');
       const userData = await authService.checkAuth();
       if (userData) {
+        console.log('[Debug] AuthContext - Authentication successful, user:', userData.username);
         setUser(userData);
         setIsAuthenticated(true);
         
@@ -50,6 +60,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         //   setSocket(socketInstance);
         // }
       } else {
+        console.log('[Debug] AuthContext - Authentication failed, clearing tokens');
         tokenService.clearTokens();
         setUser(null);
         setIsAuthenticated(false);
@@ -58,6 +69,7 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       }
     } catch (error) {
       console.error('Error checking auth:', error);
+      // Only clear tokens and state, don't force navigation
       tokenService.clearTokens();
       setUser(null);
       setIsAuthenticated(false);
@@ -93,6 +105,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setUser(userData);
         setIsAuthenticated(true);
         
+        // Check for saved location and redirect appropriately
+        const savedLocation = tokenService.getSavedLocation();
+        if (savedLocation && savedLocation !== '/login') {
+          console.log('[Debug] AuthContext - Redirecting to saved location:', savedLocation);
+          tokenService.clearSavedLocation();
+          navigate(savedLocation, { replace: true });
+        } else {
+          // Navigate to role-appropriate dashboard
+          console.log('[Debug] AuthContext - Navigating to role-based dashboard');
+          navigate('/', { replace: true });
+        }
+        
         // TODO: Initialize socket when backend socket.io server is implemented
         // const socketInstance = socketService.initializeSocket(accessToken);
         // setSocket(socketInstance);
@@ -108,12 +132,18 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
 
   const logout = async () => {
     try {
+      // Save current location before logout (optional - for "return to page after login")
+      tokenService.saveCurrentLocation(location.pathname);
+      
       await authService.logout();
       tokenService.clearTokens();
       // socketService.disconnectSocket(); // Disabled until socket server implemented
       setUser(null);
       setIsAuthenticated(false);
       setSocket(null);
+      
+      // Navigate to login page
+      navigate('/login', { replace: true });
     } catch (error) {
       console.error('Logout error:', error);
       // Clear state even if logout API call fails
@@ -122,6 +152,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setUser(null);
       setIsAuthenticated(false);
       setSocket(null);
+      
+      // Navigate to login page even on error
+      navigate('/login', { replace: true });
       throw error;
     }
   };

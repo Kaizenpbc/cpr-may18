@@ -10,7 +10,11 @@ import {
   Button,
   AppBar,
   Toolbar,
+  IconButton,
+  Tooltip,
 } from '@mui/material';
+import { LogoutOutlined as LogoutIcon } from '@mui/icons-material';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import CourseManagement from './courseAdmin/CourseManagement';
 import ClassManagement from './courseAdmin/ClassManagement';
@@ -43,11 +47,17 @@ function TabPanel(props: TabPanelProps) {
 }
 
 const CourseAdminPortal: React.FC = () => {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const [tabValue, setTabValue] = React.useState(0);
+  const navigate = useNavigate();
 
   const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
     setTabValue(newValue);
+  };
+
+  const handleLogout = () => {
+    logout();
+    navigate('/login');
   };
 
   if (user?.role !== 'admin') {
@@ -71,6 +81,11 @@ const CourseAdminPortal: React.FC = () => {
           <Typography variant="body1" sx={{ mr: 2 }}>
             Welcome {user?.username || 'Admin'}!
           </Typography>
+          <Tooltip title="Logout">
+            <IconButton color="inherit" onClick={handleLogout}>
+              <LogoutIcon />
+            </IconButton>
+          </Tooltip>
         </Toolbar>
       </AppBar>
 

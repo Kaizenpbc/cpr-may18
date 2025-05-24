@@ -48,6 +48,8 @@ const StudentUploadDialog = ({ open, onClose, courseId, onUploadComplete }) => {
         if (selectedFile) {
             logger.info('File selected for upload:', selectedFile.name);
             setSelectedFile(selectedFile);
+            // Automatically parse the file when selected
+            parseFile(selectedFile);
         }
     };
 
@@ -124,7 +126,7 @@ const StudentUploadDialog = ({ open, onClose, courseId, onUploadComplete }) => {
         setUploadError('');
         try {
             logger.info('Starting file upload');
-            const response = await api.uploadStudents(courseId, parsedStudents);
+            const response = await api.organizationApi.uploadStudents(courseId, parsedStudents);
             if (response.success) {
                 onUploadComplete(response.message); // Notify parent of success
                 handleClose(); // Close dialog on success

@@ -4,9 +4,12 @@ import {
     TableHead, TableRow, Paper, Box, Typography, 
     Tooltip, IconButton
 } from '@mui/material';
-import VisibilityIcon from '@mui/icons-material/Visibility';
+import {
+    Visibility as VisibilityIcon,
+    CheckCircle as CompleteIcon
+} from '@mui/icons-material';
 
-const MyClassesView = ({ combinedItems, onAttendanceClick }) => {
+const MyClassesView = ({ combinedItems, onAttendanceClick, onMarkCompleteClick }) => {
     return (
         <TableContainer component={Paper}>
             <Typography variant="h6" sx={{ p: 2 }}>My Schedule</Typography>
@@ -22,7 +25,7 @@ const MyClassesView = ({ combinedItems, onAttendanceClick }) => {
                         <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#e0e0e0' }} align="center">Students A</TableCell>
                         <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#e0e0e0' }}>Notes</TableCell>
                         <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#e0e0e0' }}>Status</TableCell>
-                        <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#e0e0e0' }}>Actions</TableCell>
+                        <TableCell sx={{ fontWeight: 'bold', backgroundColor: '#e0e0e0' }} align="center">Actions</TableCell>
                     </TableRow>
                 </TableHead>
                 <TableBody>
@@ -35,6 +38,9 @@ const MyClassesView = ({ combinedItems, onAttendanceClick }) => {
                     ) : (
                         combinedItems.map((item, index) => {
                             const isAvailable = item.type === 'availability';
+                            const isScheduled = item.type === 'class' && item.status === 'Scheduled';
+                            const isPastDate = new Date(item.displayDate) < new Date().setHours(0, 0, 0, 0);
+                            const canMarkComplete = isScheduled && (isPastDate || new Date(item.displayDate).toDateString() === new Date().toDateString());
                             const rowColor = index % 2 === 0 ? '#ffffff' : '#f5f5f5';
                             
                             return (
@@ -63,18 +69,37 @@ const MyClassesView = ({ combinedItems, onAttendanceClick }) => {
                                     }}>
                                         {item.status}
                                     </TableCell>
-                                    <TableCell>
-                                        {!isAvailable && (
-                                            <Tooltip title="View/Manage Attendance">
-                                                <IconButton 
-                                                    size="small" 
-                                                    color="primary"
-                                                    onClick={() => onAttendanceClick(item)}
-                                                >
-                                                    <VisibilityIcon fontSize="small"/>
-                                                </IconButton>
-                                            </Tooltip>
-                                        )}
+                                    <TableCell align="center">
+                                        <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
+                                            {!isAvailable && (
+                                                <Tooltip title="View/Manage Attendance">
+                                                    <IconButton 
+                                                        size="small" 
+                                                        color="primary"
+                                                        onClick={() => onAttendanceClick(item)}
+                                                    >
+                                                        <VisibilityIcon fontSize="small"/>
+                                                    </IconButton>
+                                                </Tooltip>
+                                            )}
+                                            {canMarkComplete && (
+                                                <Tooltip title="Mark Class as Complete">
+                                                    <IconButton 
+                                                        size="small" 
+                                                        color="success"
+                                                        onClick={() => onMarkCompleteClick(item)}
+                                                        sx={{
+                                                            '&:hover': {
+                                                                backgroundColor: 'success.light',
+                                                                color: 'white'
+                                                            }
+                                                        }}
+                                                    >
+                                                        <CompleteIcon fontSize="small"/>
+                                                    </IconButton>
+                                                </Tooltip>
+                                            )}
+                                        </Box>
                                     </TableCell>
                                 </TableRow>
                             );

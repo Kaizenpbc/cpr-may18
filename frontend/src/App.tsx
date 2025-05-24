@@ -6,6 +6,10 @@ import PrivateRoute from './components/PrivateRoute';
 import ForgotPassword from './pages/ForgotPassword';
 import ResetPassword from './pages/ResetPassword';
 import RoleBasedRouter from './components/RoleBasedRouter';
+import InstructorPortal from './components/portals/InstructorPortal';
+import OrganizationPortal from './components/portals/OrganizationPortal';
+import CourseAdminPortal from './components/portals/CourseAdminPortal';
+import SuperAdminPortal from './components/portals/SuperAdminPortal';
 import { AuthProvider } from './contexts/AuthContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
@@ -32,6 +36,31 @@ function App() {
             <Route path="/forgot-password" element={<ForgotPassword />} />
             <Route path="/reset-password" element={<ResetPassword />} />
             
+            {/* Role-specific portal routes - these allow direct URL access and refresh */}
+            <Route path="/instructor/*" element={
+              <PrivateRoute requiredRole="instructor">
+                <InstructorPortal />
+              </PrivateRoute>
+            } />
+            
+            <Route path="/organization/*" element={
+              <PrivateRoute requiredRole="organization">
+                <OrganizationPortal />
+              </PrivateRoute>
+            } />
+            
+            <Route path="/admin/*" element={
+              <PrivateRoute requiredRole="admin">
+                <CourseAdminPortal />
+              </PrivateRoute>
+            } />
+            
+            <Route path="/superadmin/*" element={
+              <PrivateRoute requiredRole="superadmin">
+                <SuperAdminPortal />
+              </PrivateRoute>
+            } />
+
             {/* Main protected route - redirects to role-based portal */}
             <Route path="/" element={
               <PrivateRoute>

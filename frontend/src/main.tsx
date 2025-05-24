@@ -52,11 +52,11 @@ try {
         <ThemeProvider theme={theme}>
           <LocalizationProvider dateAdapter={AdapterDateFns}>
             <CssBaseline />
-            <AuthProvider>
-              <BrowserRouter>
+            <BrowserRouter>
+              <AuthProvider>
                 <App />
-              </BrowserRouter>
-            </AuthProvider>
+              </AuthProvider>
+            </BrowserRouter>
           </LocalizationProvider>
         </ThemeProvider>
       </QueryClientProvider>

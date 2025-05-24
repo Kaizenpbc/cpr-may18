@@ -161,6 +161,10 @@ export const organizationApi = {
     return extractData(response);
   },
   getCourseStudents: (courseId: number) => api.get(`/api/v1/organization/courses/${courseId}/students`),
+  uploadStudents: async (courseId: number, students: any[]) => {
+    const response = await api.post(`/api/v1/organization/courses/${courseId}/students`, { students });
+    return response.data;
+  },
 };
 
 // Course types endpoint

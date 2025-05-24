@@ -22,7 +22,8 @@ const Login = () => {
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
   const { login } = useAuth()
-  const navigate = useNavigate()
+  // Note: We no longer need to manually navigate after login
+  // The AuthContext handles navigation and location restoration
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -32,8 +33,8 @@ const Login = () => {
 
     try {
       await login(username, password)
-      console.log('Login - Login successful, redirecting to dashboard');
-      navigate('/dashboard')
+      console.log('Login - Login successful, AuthContext will handle navigation');
+      // No manual navigation - AuthContext handles this and restores user's location
     } catch (err: any) {
       console.error('Login - Login error:', err);
       setError(err.response?.data?.message || 'Failed to login. Please check your credentials.');

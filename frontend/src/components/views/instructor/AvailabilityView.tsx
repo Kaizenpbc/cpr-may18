@@ -23,7 +23,7 @@ import {
     EventBusy as EventBusyIcon,
     HolidayVillage as HolidayVillageIcon
 } from '@mui/icons-material';
-import { format, parseISO } from 'date-fns';
+import { format } from 'date-fns';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { DateCalendar } from '@mui/x-date-pickers/DateCalendar';
@@ -175,40 +175,45 @@ const AvailabilityView: React.FC<Props> = ({
         const { day, ...other } = props;
         const dateStr = format(day, 'yyyy-MM-dd');
         const isAvailable = availableDates.includes(dateStr);
-        const isScheduled = scheduledClasses.some(c => format(parseISO(c.date), 'yyyy-MM-dd') === dateStr);
+        
+        const isScheduled = scheduledClasses.some(c => {
+            // Check multiple possible date field names from backend
+            const classDate = c.date || c.datescheduled;
+            return classDate === dateStr;
+        });
+        
         const isHoliday = holidays.includes(dateStr);
         const isPastDate = day < new Date(new Date().setHours(0, 0, 0, 0));
         
-        // Determine day status and color
-        let backgroundColor, hoverColor, tooltipTitle, textColor = 'white';
+        // Color scheduled classes BLUE and available dates GREEN
+        let backgroundColor, hoverColor, tooltipTitle, textColor;
         
         if (isScheduled) {
-            // 🔵 Blue = Scheduled Classes
+            // Blue = Scheduled Classes
             backgroundColor = theme.palette.primary.main;
             hoverColor = theme.palette.primary.dark;
-            const classInfo = scheduledClasses.find(c => format(parseISO(c.date), 'yyyy-MM-dd') === dateStr);
-            tooltipTitle = `🔵 Scheduled: ${classInfo?.organization || 'Class'}`;
+            textColor = 'white';
+            const classInfo = scheduledClasses.find(c => (c.date || c.datescheduled) === dateStr);
+            tooltipTitle = `Scheduled: ${classInfo?.organization || 'Class'}`;
         } else if (isAvailable) {
-            // 🟢 Green = Available
+            // Green = Available
             backgroundColor = theme.palette.success.main;
             hoverColor = theme.palette.success.dark;
-            tooltipTitle = '🟢 Available - Click to remove';
-        } else if (isHoliday) {
-            // 🟡 Yellow = Partially Available (using holidays as an example)
-            backgroundColor = theme.palette.warning.main;
-            hoverColor = theme.palette.warning.dark;
-            tooltipTitle = '🟡 Holiday (Partially Available)';
-        } else if (isPastDate) {
-            // 🔴 Red = Unavailable/Booked (past dates)
-            backgroundColor = theme.palette.error.main;
-            hoverColor = theme.palette.error.dark;
-            tooltipTitle = '🔴 Unavailable (Past Date)';
+            textColor = 'white';
+            tooltipTitle = 'Available - Click to remove';
         } else {
-            // Default state - can be marked as available
+            // All other dates use default styling
             backgroundColor = 'inherit';
             hoverColor = theme.palette.action.hover;
             textColor = 'inherit';
-            tooltipTitle = 'Click to mark as available';
+            
+            if (isHoliday) {
+                tooltipTitle = 'Holiday';
+            } else if (isPastDate) {
+                tooltipTitle = 'Past Date';
+            } else {
+                tooltipTitle = 'Click to mark as available';
+            }
         }
 
         const handleDayClick = () => {
@@ -305,29 +310,7 @@ const AvailabilityView: React.FC<Props> = ({
                                             backgroundColor: theme.palette.success.main 
                                         }} 
                                     />
-                                    <Typography variant="body2">🟢 Available</Typography>
-                                </Box>
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                    <Box 
-                                        sx={{ 
-                                            width: 20, 
-                                            height: 20, 
-                                            borderRadius: '50%', 
-                                            backgroundColor: theme.palette.error.main 
-                                        }} 
-                                    />
-                                    <Typography variant="body2">🔴 Unavailable/Booked</Typography>
-                                </Box>
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                                    <Box 
-                                        sx={{ 
-                                            width: 20, 
-                                            height: 20, 
-                                            borderRadius: '50%', 
-                                            backgroundColor: theme.palette.warning.main 
-                                        }} 
-                                    />
-                                    <Typography variant="body2">🟡 Partially Available</Typography>
+                                    <Typography variant="body2">Available</Typography>
                                 </Box>
                                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                                     <Box 
@@ -338,7 +321,7 @@ const AvailabilityView: React.FC<Props> = ({
                                             backgroundColor: theme.palette.primary.main 
                                         }} 
                                     />
-                                    <Typography variant="body2">🔵 Scheduled Classes</Typography>
+                                    <Typography variant="body2">Scheduled Classes</Typography>
                                 </Box>
                                 <Box sx={{ mt: 1, pt: 1, borderTop: `1px solid ${theme.palette.divider}` }}>
                                     <Typography variant="caption" color="text.secondary">
