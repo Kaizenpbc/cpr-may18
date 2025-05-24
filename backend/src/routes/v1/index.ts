@@ -383,19 +383,293 @@ router.get('/courses/confirmed', asyncHandler(async (_req: Request, res: Respons
         cr.created_at,
         ct.name as course_type,
         o.name as organization_name,
-        u.username as instructor_name
+        u.username as instructor_name,
+        COALESCE(cs.student_count, 0) as actual_students,
+        COALESCE(cs.attended_count, 0) as students_attended
        FROM course_requests cr
        JOIN class_types ct ON cr.course_type_id = ct.id
        JOIN organizations o ON cr.organization_id = o.id
        LEFT JOIN users u ON cr.instructor_id = u.id
+       LEFT JOIN (
+         SELECT 
+           course_request_id, 
+           COUNT(*) as student_count,
+           COUNT(CASE WHEN attended = true THEN 1 END) as attended_count
+         FROM course_students
+         GROUP BY course_request_id
+       ) cs ON cr.id = cs.course_request_id
        WHERE cr.status = 'confirmed'
        ORDER BY cr.scheduled_date ASC, cr.scheduled_start_time ASC`
     );
 
-    return res.json(ApiResponseBuilder.success(result.rows));
+    // Update registered_students with actual count if students have been uploaded
+    const courses = result.rows.map(row => ({
+      ...row,
+      registered_students: row.actual_students > 0 ? row.actual_students : row.registered_students
+    }));
+
+    return res.json(ApiResponseBuilder.success(courses));
   } catch (error: any) {
     console.error('Error fetching confirmed courses:', error);
     throw new AppError(500, errorCodes.DB_QUERY_ERROR, 'Failed to fetch confirmed courses');
+  }
+}));
+
+// Get completed courses
+router.get('/courses/completed', asyncHandler(async (_req: Request, res: Response) => {
+  try {
+    const result = await pool.query(
+      `SELECT 
+        cr.id,
+        cr.date_requested,
+        cr.location,
+        cr.registered_students,
+        cr.notes,
+        cr.status,
+        cr.scheduled_date,
+        cr.scheduled_start_time,
+        cr.scheduled_end_time,
+        cr.completed_at,
+        cr.created_at,
+        ct.name as course_type,
+        o.name as organization_name,
+        u.username as instructor_name,
+        COALESCE(cs.student_count, 0) as actual_students,
+        COALESCE(cs.attended_count, 0) as students_attended
+       FROM course_requests cr
+       JOIN class_types ct ON cr.course_type_id = ct.id
+       JOIN organizations o ON cr.organization_id = o.id
+       LEFT JOIN users u ON cr.instructor_id = u.id
+       LEFT JOIN (
+         SELECT 
+           course_request_id, 
+           COUNT(*) as student_count,
+           COUNT(CASE WHEN attended = true THEN 1 END) as attended_count
+         FROM course_students
+         GROUP BY course_request_id
+       ) cs ON cr.id = cs.course_request_id
+       WHERE cr.status = 'completed'
+       ORDER BY cr.completed_at DESC`
+    );
+
+    // Update registered_students with actual count if students have been uploaded
+    const courses = result.rows.map(row => ({
+      ...row,
+      registered_students: row.actual_students > 0 ? row.actual_students : row.registered_students
+    }));
+
+    return res.json(ApiResponseBuilder.success(courses));
+  } catch (error: any) {
+    console.error('Error fetching completed courses:', error);
+    throw new AppError(500, errorCodes.DB_QUERY_ERROR, 'Failed to fetch completed courses');
+  }
+}));
+
+// Cancel a course request
+router.put('/courses/:id/cancel', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { reason } = req.body;
+
+    if (!reason?.trim()) {
+      throw new AppError(400, errorCodes.VALIDATION_ERROR, 'Cancellation reason is required');
+    }
+
+    const client = await pool.connect();
+    
+    try {
+      await client.query('BEGIN');
+
+      // Update course request status to cancelled and add reason to notes
+      const courseUpdateResult = await client.query(
+        `UPDATE course_requests 
+         SET status = 'cancelled', 
+             notes = CASE 
+               WHEN notes IS NULL OR notes = '' THEN $2
+               ELSE notes || E'\n\n[CANCELLED] ' || $2
+             END,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = $1 
+         RETURNING *`,
+        [id, reason]
+      );
+
+      if (courseUpdateResult.rows.length === 0) {
+        throw new AppError(404, errorCodes.RESOURCE_NOT_FOUND, 'Course request not found');
+      }
+
+      const courseRequest = courseUpdateResult.rows[0];
+
+      // If instructor was assigned, remove the corresponding class and restore availability
+      if (courseRequest.instructor_id && courseRequest.scheduled_date) {
+        // Remove the class from instructor's schedule
+        await client.query(
+          `DELETE FROM classes 
+           WHERE instructor_id = $1 AND date = $2`,
+          [courseRequest.instructor_id, courseRequest.scheduled_date]
+        );
+
+        // Restore instructor availability for that date
+        await client.query(
+          `INSERT INTO instructor_availability (instructor_id, date, status)
+           VALUES ($1, $2, 'available')
+           ON CONFLICT (instructor_id, date) DO UPDATE SET status = 'available'`,
+          [courseRequest.instructor_id, courseRequest.scheduled_date]
+        );
+      }
+
+      await client.query('COMMIT');
+
+      return res.json({
+        success: true,
+        message: 'Course cancelled successfully',
+        course: courseRequest
+      });
+
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+
+  } catch (error: any) {
+    console.error('Error cancelling course:', error);
+    throw new AppError(500, errorCodes.DB_QUERY_ERROR, 'Failed to cancel course');
+  }
+}));
+
+// Update course schedule (reschedule)
+router.put('/courses/:id/schedule', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { scheduledDate, startTime, endTime, instructorId } = req.body;
+
+    if (!scheduledDate) {
+      throw new AppError(400, errorCodes.VALIDATION_ERROR, 'Scheduled date is required');
+    }
+
+    const client = await pool.connect();
+    
+    try {
+      await client.query('BEGIN');
+
+      // Get current course data
+      const currentCourseResult = await client.query(
+        'SELECT * FROM course_requests WHERE id = $1',
+        [id]
+      );
+
+      if (currentCourseResult.rows.length === 0) {
+        throw new AppError(404, errorCodes.RESOURCE_NOT_FOUND, 'Course request not found');
+      }
+
+      const currentCourse = currentCourseResult.rows[0];
+
+      // Update course request with new schedule and optionally new instructor
+      const updateFields = ['scheduled_date = $2', 'updated_at = CURRENT_TIMESTAMP'];
+      const updateValues = [id, scheduledDate];
+      let paramIndex = 3;
+
+      if (startTime) {
+        updateFields.push(`scheduled_start_time = $${paramIndex}`);
+        updateValues.push(startTime);
+        paramIndex++;
+      }
+
+      if (endTime) {
+        updateFields.push(`scheduled_end_time = $${paramIndex}`);
+        updateValues.push(endTime);
+        paramIndex++;
+      }
+
+      if (instructorId && instructorId !== currentCourse.instructor_id) {
+        updateFields.push(`instructor_id = $${paramIndex}`);
+        updateValues.push(instructorId);
+        paramIndex++;
+      }
+
+      const courseUpdateResult = await client.query(
+        `UPDATE course_requests 
+         SET ${updateFields.join(', ')}
+         WHERE id = $1 
+         RETURNING *`,
+        updateValues
+      );
+
+      const updatedCourse = courseUpdateResult.rows[0];
+
+      // If instructor changed or schedule changed, update classes table
+      if (currentCourse.instructor_id) {
+        // Remove old class entry
+        await client.query(
+          `DELETE FROM classes 
+           WHERE instructor_id = $1 AND date = $2`,
+          [currentCourse.instructor_id, currentCourse.scheduled_date]
+        );
+
+        // Restore old instructor's availability
+        await client.query(
+          `INSERT INTO instructor_availability (instructor_id, date, status)
+           VALUES ($1, $2, 'available')
+           ON CONFLICT (instructor_id, date) DO UPDATE SET status = 'available'`,
+          [currentCourse.instructor_id, currentCourse.scheduled_date]
+        );
+      }
+
+      // Create new class entry for the updated course
+      if (updatedCourse.instructor_id) {
+        await client.query(
+          `INSERT INTO classes (
+            instructor_id, 
+            type_id, 
+            date, 
+            start_time, 
+            end_time, 
+            location, 
+            max_students, 
+            current_students,
+            status,
+            created_at,
+            updated_at
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, 0, 'scheduled', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+          [
+            updatedCourse.instructor_id,
+            updatedCourse.course_type_id,
+            updatedCourse.scheduled_date,
+            updatedCourse.scheduled_start_time || startTime,
+            updatedCourse.scheduled_end_time || endTime,
+            updatedCourse.location,
+            updatedCourse.registered_students
+          ]
+        );
+
+        // Remove instructor's availability for the new scheduled date
+        await client.query(
+          `DELETE FROM instructor_availability 
+           WHERE instructor_id = $1 AND date = $2`,
+          [updatedCourse.instructor_id, updatedCourse.scheduled_date]
+        );
+      }
+
+      await client.query('COMMIT');
+
+      return res.json({
+        success: true,
+        message: 'Course schedule updated successfully',
+        course: updatedCourse
+      });
+
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+
+  } catch (error: any) {
+    console.error('Error updating course schedule:', error);
+    throw new AppError(500, errorCodes.DB_QUERY_ERROR, 'Failed to update course schedule');
   }
 }));
 
@@ -697,6 +971,110 @@ router.get('/instructors/:id/availability', asyncHandler(async (req: Request, re
     console.error('Error fetching instructor availability:', error);
     throw new AppError(500, errorCodes.DB_QUERY_ERROR, 'Failed to fetch instructor availability');
   }
+}));
+
+// Get instructor statistics for dashboard
+router.get('/admin/instructor-stats', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const { month } = req.query; // Format: YYYY-MM
+    
+    if (!month) {
+      throw new AppError(400, errorCodes.VALIDATION_ERROR, 'Month parameter is required (format: YYYY-MM)');
+    }
+
+    // Parse the month to get start and end dates
+    const startDate = `${month}-01`;
+    const endDate = new Date(new Date(startDate).getFullYear(), new Date(startDate).getMonth() + 1, 0)
+      .toISOString().split('T')[0];
+
+    const result = await pool.query(
+      `SELECT 
+        u.id as instructor_id,
+        u.username as instructor_name,
+        u.email,
+        COUNT(CASE WHEN cr.status = 'completed' THEN 1 END) as courses_completed,
+        COUNT(CASE WHEN cr.status = 'confirmed' AND cr.scheduled_date >= CURRENT_DATE THEN 1 END) as courses_scheduled,
+        COUNT(cr.id) as total_courses,
+        CASE 
+          WHEN COUNT(cr.id) > 0 THEN 
+            ROUND((COUNT(CASE WHEN cr.status = 'completed' THEN 1 END)::DECIMAL / COUNT(cr.id)) * 100, 1)
+          ELSE 0 
+        END as completion_rate,
+        MAX(cr.scheduled_date) as last_course_date,
+        CASE 
+          WHEN COUNT(cr.id) > 0 THEN 
+            ROUND(AVG(cr.registered_students::DECIMAL), 1)
+          ELSE 0 
+        END as avg_students_per_course
+      FROM users u
+      LEFT JOIN course_requests cr ON u.id = cr.instructor_id 
+        AND cr.scheduled_date >= $1 
+        AND cr.scheduled_date <= $2
+      WHERE u.role = 'instructor'
+      GROUP BY u.id, u.username, u.email
+      ORDER BY total_courses DESC, completion_rate DESC`,
+      [startDate, endDate]
+    );
+
+    res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('Error fetching instructor stats:', error);
+    throw error;
+  }
+}));
+
+// Get dashboard summary for the month
+router.get('/admin/dashboard-summary', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const { month } = req.query; // Format: YYYY-MM
+    
+    if (!month) {
+      throw new AppError(400, errorCodes.VALIDATION_ERROR, 'Month parameter is required (format: YYYY-MM)');
+    }
+
+    // Parse the month to get start and end dates
+    const startDate = `${month}-01`;
+    const endDate = new Date(new Date(startDate).getFullYear(), new Date(startDate).getMonth() + 1, 0)
+      .toISOString().split('T')[0];
+
+    const summaryResult = await pool.query(
+      `SELECT 
+        COUNT(DISTINCT u.id) as total_instructors,
+        COUNT(cr.id) as total_courses_this_month,
+        COUNT(CASE WHEN cr.status = 'completed' THEN 1 END) as total_completed_this_month,
+        CASE 
+          WHEN COUNT(DISTINCT u.id) > 0 THEN 
+            ROUND(COUNT(cr.id)::DECIMAL / COUNT(DISTINCT u.id), 1)
+          ELSE 0 
+        END as avg_courses_per_instructor
+      FROM users u
+      LEFT JOIN course_requests cr ON u.id = cr.instructor_id 
+        AND cr.scheduled_date >= $1 
+        AND cr.scheduled_date <= $2
+      WHERE u.role = 'instructor'`,
+      [startDate, endDate]
+    );
+
+    res.json({
+      success: true,
+      data: summaryResult.rows[0]
+    });
+  } catch (error) {
+    console.error('Error fetching dashboard summary:', error);
+    throw error;
+  }
+}));
+
+router.get('/admin/logs', asyncHandler(async (req: Request, res: Response) => {
+  // Implementation of getting logs
+  // This is a placeholder and should be replaced with the actual implementation
+  res.json({
+    success: true,
+    data: []
+  });
 }));
 
 export default router; 

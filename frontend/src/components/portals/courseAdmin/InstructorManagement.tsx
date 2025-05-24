@@ -22,8 +22,9 @@ import {
   MenuItem,
   Tooltip,
 } from '@mui/material';
-import { Edit as EditIcon, Delete as DeleteIcon, Add as AddIcon, Schedule as ScheduleIcon, CalendarToday as CalendarIcon } from '@mui/icons-material';
+import { Edit as EditIcon, Delete as DeleteIcon, Add as AddIcon, Schedule as ScheduleIcon, CalendarToday as CalendarIcon, Cancel as CancelIcon } from '@mui/icons-material';
 import { api } from '../../../services/api';
+import InstructorDashboard from './InstructorDashboard';
 
 interface Instructor {
   id: number;
@@ -59,13 +60,18 @@ const InstructorManagement: React.FC = () => {
   const [instructors, setInstructors] = useState<Instructor[]>([]);
   const [pendingCourses, setPendingCourses] = useState<any[]>([]);
   const [confirmedCourses, setConfirmedCourses] = useState<any[]>([]);
+  const [completedCourses, setCompletedCourses] = useState<any[]>([]);
   const [open, setOpen] = useState(false);
   const [availabilityOpen, setAvailabilityOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [assignOpen, setAssignOpen] = useState(false);
+  const [editScheduleOpen, setEditScheduleOpen] = useState(false);
+  const [cancelCourseOpen, setCancelCourseOpen] = useState(false);
   const [editingInstructor, setEditingInstructor] = useState<Instructor | null>(null);
   const [viewingInstructor, setViewingInstructor] = useState<Instructor | null>(null);
   const [selectedCourse, setSelectedCourse] = useState<any>(null);
+  const [courseToEdit, setCourseToEdit] = useState<any>(null);
+  const [courseToCancel, setCourseToCancel] = useState<any>(null);
   const [availabilityData, setAvailabilityData] = useState<AvailabilityFormData[]>([]);
   const [instructorSchedule, setInstructorSchedule] = useState<any[]>([]);
   const [instructorAvailability, setInstructorAvailability] = useState<any[]>([]);
@@ -80,6 +86,15 @@ const InstructorManagement: React.FC = () => {
     startTime: '09:00',
     endTime: '12:00'
   });
+  const [editScheduleData, setEditScheduleData] = useState({
+    scheduledDate: '',
+    startTime: '09:00',
+    endTime: '12:00',
+    instructorId: ''
+  });
+  const [cancelData, setCancelData] = useState({
+    reason: ''
+  });
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -87,6 +102,7 @@ const InstructorManagement: React.FC = () => {
     fetchInstructors();
     fetchPendingCourses();
     fetchConfirmedCourses();
+    fetchCompletedCourses();
   }, []);
 
   const fetchInstructors = async () => {
@@ -114,6 +130,15 @@ const InstructorManagement: React.FC = () => {
       setConfirmedCourses(response.data.data);
     } catch (err) {
       setError('Failed to fetch confirmed courses');
+    }
+  };
+
+  const fetchCompletedCourses = async () => {
+    try {
+      const response = await api.get('/api/v1/courses/completed');
+      setCompletedCourses(response.data.data);
+    } catch (err) {
+      setError('Failed to fetch completed courses');
     }
   };
 
@@ -199,6 +224,40 @@ const InstructorManagement: React.FC = () => {
   const handleAssignClose = () => {
     setAssignOpen(false);
     setSelectedCourse(null);
+  };
+
+  const handleEditScheduleOpen = (course: any) => {
+    setCourseToEdit(course);
+    setEditScheduleData({
+      scheduledDate: course.scheduled_date || '',
+      startTime: course.scheduled_start_time || '09:00',
+      endTime: course.scheduled_end_time || '12:00',
+      instructorId: course.instructor_id || ''
+    });
+    setEditScheduleOpen(true);
+  };
+
+  const handleEditScheduleClose = () => {
+    setEditScheduleOpen(false);
+    setCourseToEdit(null);
+    setEditScheduleData({
+      scheduledDate: '',
+      startTime: '09:00',
+      endTime: '12:00',
+      instructorId: ''
+    });
+  };
+
+  const handleCancelCourseOpen = (course: any) => {
+    setCourseToCancel(course);
+    setCancelData({ reason: '' });
+    setCancelCourseOpen(true);
+  };
+
+  const handleCancelCourseClose = () => {
+    setCancelCourseOpen(false);
+    setCourseToCancel(null);
+    setCancelData({ reason: '' });
   };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -288,9 +347,52 @@ const InstructorManagement: React.FC = () => {
       setSuccess('Instructor assigned successfully! Course status updated to Confirmed.');
       fetchPendingCourses();
       fetchConfirmedCourses();
+      fetchCompletedCourses();
       handleAssignClose();
     } catch (err) {
       setError('Failed to assign instructor');
+    }
+  };
+
+  const handleEditScheduleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!courseToEdit) return;
+
+    try {
+      await api.put(`/api/v1/courses/${courseToEdit.id}/schedule`, {
+        scheduledDate: editScheduleData.scheduledDate,
+        startTime: editScheduleData.startTime,
+        endTime: editScheduleData.endTime,
+        instructorId: editScheduleData.instructorId
+      });
+      setSuccess('Course schedule updated successfully!');
+      fetchPendingCourses();
+      fetchConfirmedCourses();
+      fetchCompletedCourses();
+      handleEditScheduleClose();
+    } catch (err) {
+      setError('Failed to update course schedule');
+    }
+  };
+
+  const handleCancelCourseSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!courseToCancel || !cancelData.reason.trim()) {
+      setError('Please provide a reason for cancellation');
+      return;
+    }
+
+    try {
+      await api.put(`/api/v1/courses/${courseToCancel.id}/cancel`, {
+        reason: cancelData.reason
+      });
+      setSuccess('Course cancelled successfully!');
+      fetchPendingCourses();
+      fetchConfirmedCourses();
+      fetchCompletedCourses();
+      handleCancelCourseClose();
+    } catch (err) {
+      setError('Failed to cancel course');
     }
   };
 
@@ -326,6 +428,9 @@ const InstructorManagement: React.FC = () => {
         </Alert>
       )}
 
+      {/* Instructor Fairness Dashboard */}
+      <InstructorDashboard />
+
       {/* Pending Course Requests Section */}
       <Box sx={{ mb: 4 }}>
         <Typography variant="h6" gutterBottom>
@@ -336,119 +441,74 @@ const InstructorManagement: React.FC = () => {
             <TableHead>
               <TableRow>
                 <TableCell>Date Requested</TableCell>
-                <TableCell>Course Type</TableCell>
+                <TableCell>Scheduled Date</TableCell>
                 <TableCell>Organization</TableCell>
                 <TableCell>Location</TableCell>
-                <TableCell>Students</TableCell>
+                <TableCell>Course Type</TableCell>
+                <TableCell>Students Registered</TableCell>
                 <TableCell>Notes</TableCell>
-                <TableCell>Instructor</TableCell>
                 <TableCell>Status</TableCell>
                 <TableCell>Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
-              {pendingCourses.map((course) => (
-                <TableRow key={course.id}>
-                  <TableCell>{formatDateWithoutTimezone(course.date_requested)}</TableCell>
-                  <TableCell>{course.course_type}</TableCell>
-                  <TableCell>{course.organization_name}</TableCell>
-                  <TableCell>{course.location}</TableCell>
-                  <TableCell>{course.registered_students}</TableCell>
-                  <TableCell>
-                    <Typography variant="body2" sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {course.notes || '-'}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2" color={course.instructor_name ? 'primary' : 'textSecondary'}>
-                      {course.instructor_name || 'Not Assigned'}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Chip label={course.status} color="warning" size="small" />
-                  </TableCell>
-                  <TableCell>
-                    <Button
-                      variant="contained"
-                      color="primary"
-                      size="small"
-                      onClick={() => handleAssignOpen(course)}
-                    >
-                      Assign Instructor
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              ))}
-            </TableBody>
-          </Table>
-        </TableContainer>
-      </Box>
-
-      {/* Confirmed Courses Section */}
-      <Box sx={{ mb: 4 }}>
-        <Typography variant="h6" gutterBottom>
-          Confirmed Courses
-        </Typography>
-        <TableContainer component={Paper} sx={{ mb: 2 }}>
-          <Table>
-            <TableHead>
-              <TableRow>
-                <TableCell>Date Requested</TableCell>
-                <TableCell>Course Type</TableCell>
-                <TableCell>Organization</TableCell>
-                <TableCell>Location</TableCell>
-                <TableCell>Students</TableCell>
-                <TableCell>Notes</TableCell>
-                <TableCell>Instructor</TableCell>
-                <TableCell>Scheduled Date</TableCell>
-                <TableCell>Time</TableCell>
-                <TableCell>Status</TableCell>
-              </TableRow>
-            </TableHead>
-            <TableBody>
-              {confirmedCourses.map((course) => (
-                <TableRow key={course.id}>
-                  <TableCell>{formatDateWithoutTimezone(course.date_requested)}</TableCell>
-                  <TableCell>{course.course_type}</TableCell>
-                  <TableCell>{course.organization_name}</TableCell>
-                  <TableCell>{course.location}</TableCell>
-                  <TableCell>{course.registered_students}</TableCell>
-                  <TableCell>
-                    <Typography variant="body2" sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                      {course.notes || '-'}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2" color="primary" fontWeight="medium">
-                      {course.instructor_name || 'Not Assigned'}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2" fontWeight="medium">
-                      {course.scheduled_date ? formatDateWithoutTimezone(course.scheduled_date) : '-'}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2">
-                      {course.scheduled_start_time && course.scheduled_end_time 
-                        ? `${course.scheduled_start_time.slice(0,5)} - ${course.scheduled_end_time.slice(0,5)}`
-                        : '-'
-                      }
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Chip label={course.status} color="success" size="small" />
-                  </TableCell>
-                </TableRow>
-              ))}
-              {confirmedCourses.length === 0 && (
+              {pendingCourses.length === 0 ? (
                 <TableRow>
-                  <TableCell colSpan={10} align="center">
-                    <Typography variant="body2" color="textSecondary" sx={{ py: 2 }}>
-                      No confirmed courses yet
+                  <TableCell colSpan={9} align="center">
+                    <Typography variant="h6" color="textSecondary" sx={{ py: 4 }}>
+                      NO COURSE PENDING
                     </Typography>
                   </TableCell>
                 </TableRow>
+              ) : (
+                pendingCourses.map((course) => (
+                  <TableRow key={course.id}>
+                    <TableCell>{formatDateWithoutTimezone(course.date_requested)}</TableCell>
+                    <TableCell>
+                      {course.scheduled_date ? formatDateWithoutTimezone(course.scheduled_date) : '-'}
+                    </TableCell>
+                    <TableCell>{course.organization_name}</TableCell>
+                    <TableCell>{course.location}</TableCell>
+                    <TableCell>{course.course_type}</TableCell>
+                    <TableCell>{course.registered_students}</TableCell>
+                    <TableCell>
+                      <Typography variant="body2" sx={{ maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                        {course.notes || '-'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Chip label={course.status} color="warning" size="small" />
+                    </TableCell>
+                    <TableCell>
+                      <Stack direction="row" spacing={1}>
+                        <Button
+                          variant="contained"
+                          color="primary"
+                          size="small"
+                          onClick={() => handleAssignOpen(course)}
+                        >
+                          Assign Instructor
+                        </Button>
+                        <Button
+                          variant="outlined"
+                          color="secondary"
+                          size="small"
+                          onClick={() => handleEditScheduleOpen(course)}
+                        >
+                          Edit Schedule
+                        </Button>
+                        <Button
+                          variant="outlined"
+                          color="error"
+                          size="small"
+                          onClick={() => handleCancelCourseOpen(course)}
+                        >
+                          Cancel
+                        </Button>
+                      </Stack>
+                    </TableCell>
+                  </TableRow>
+                ))
               )}
             </TableBody>
           </Table>
@@ -458,31 +518,21 @@ const InstructorManagement: React.FC = () => {
       {/* Instructor Management Section */}
       <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Typography variant="h6">Instructor Availability & Assignments</Typography>
-        <Stack direction="row" spacing={2}>
-          <Button
-            variant="outlined"
-            onClick={fetchInstructors}
-            sx={{ textTransform: 'none' }}
-          >
-            Refresh Data
-          </Button>
-          <Button
-            variant="contained"
-            color="primary"
-            startIcon={<AddIcon />}
-            onClick={() => handleOpen()}
-          >
-            Add Instructor
-          </Button>
-        </Stack>
+        <Button
+          variant="outlined"
+          onClick={fetchInstructors}
+          sx={{ textTransform: 'none' }}
+        >
+          Refresh Data
+        </Button>
       </Box>
 
-      <TableContainer component={Paper}>
+      <TableContainer component={Paper} sx={{ mb: 4 }}>
         <Table>
           <TableHead>
             <TableRow>
               <TableCell><Typography variant="subtitle2" fontWeight="bold">Instructor Name</Typography></TableCell>
-              <TableCell><Typography variant="subtitle2" fontWeight="bold">Date Available</Typography></TableCell>
+              <TableCell><Typography variant="subtitle2" fontWeight="bold">Date Available/Scheduled</Typography></TableCell>
               <TableCell><Typography variant="subtitle2" fontWeight="bold">Organization</Typography></TableCell>
               <TableCell><Typography variant="subtitle2" fontWeight="bold">Location</Typography></TableCell>
               <TableCell><Typography variant="subtitle2" fontWeight="bold">Course Type</Typography></TableCell>
@@ -584,6 +634,165 @@ const InstructorManagement: React.FC = () => {
           </TableBody>
         </Table>
       </TableContainer>
+
+      {/* Confirmed Courses Section */}
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="h6" gutterBottom>
+          Confirmed Courses
+        </Typography>
+        <TableContainer component={Paper} sx={{ mb: 2 }}>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell>Date Requested</TableCell>
+                <TableCell>Date Scheduled</TableCell>
+                <TableCell>Organization</TableCell>
+                <TableCell>Location</TableCell>
+                <TableCell>Course Type</TableCell>
+                <TableCell>Students Registered</TableCell>
+                <TableCell>Students Attended</TableCell>
+                <TableCell>Notes</TableCell>
+                <TableCell>Instructor</TableCell>
+                <TableCell>Status</TableCell>
+                <TableCell>Actions</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {confirmedCourses.map((course) => (
+                <TableRow key={course.id}>
+                  <TableCell>{formatDateWithoutTimezone(course.date_requested)}</TableCell>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      {course.scheduled_date ? formatDateWithoutTimezone(course.scheduled_date) : '-'}
+                    </Typography>
+                    {course.scheduled_start_time && course.scheduled_end_time && (
+                      <Typography variant="caption" color="textSecondary" display="block">
+                        {course.scheduled_start_time.slice(0,5)} - {course.scheduled_end_time.slice(0,5)}
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>{course.organization_name}</TableCell>
+                  <TableCell>{course.location}</TableCell>
+                  <TableCell>{course.course_type}</TableCell>
+                  <TableCell align="center">{course.registered_students}</TableCell>
+                  <TableCell align="center">{course.students_attended || 0}</TableCell>
+                  <TableCell>
+                    <Typography variant="body2" sx={{ maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {course.notes || '-'}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" color="primary" fontWeight="medium">
+                      {course.instructor_name || 'Not Assigned'}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip label={course.status} color="success" size="small" />
+                  </TableCell>
+                  <TableCell>
+                    <Stack direction="row" spacing={1}>
+                      <Button
+                        variant="outlined"
+                        color="secondary"
+                        size="small"
+                        onClick={() => handleEditScheduleOpen(course)}
+                      >
+                        Edit
+                      </Button>
+                      <Button
+                        variant="outlined"
+                        color="error"
+                        size="small"
+                        onClick={() => handleCancelCourseOpen(course)}
+                      >
+                        Cancel
+                      </Button>
+                    </Stack>
+                  </TableCell>
+                </TableRow>
+              ))}
+              {confirmedCourses.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={11} align="center">
+                    <Typography variant="body2" color="textSecondary" sx={{ py: 2 }}>
+                      No confirmed courses yet
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </Box>
+
+      {/* Completed Courses Section */}
+      <Box sx={{ mb: 4 }}>
+        <Typography variant="h6" gutterBottom>
+          Completed Courses
+        </Typography>
+        <TableContainer component={Paper} sx={{ mb: 2 }}>
+          <Table>
+            <TableHead>
+              <TableRow>
+                <TableCell>Date Requested</TableCell>
+                <TableCell>Date Scheduled</TableCell>
+                <TableCell>Organization</TableCell>
+                <TableCell>Location</TableCell>
+                <TableCell>Course Type</TableCell>
+                <TableCell>Students Registered</TableCell>
+                <TableCell>Students Attended</TableCell>
+                <TableCell>Notes</TableCell>
+                <TableCell>Instructor</TableCell>
+                <TableCell>Status</TableCell>
+              </TableRow>
+            </TableHead>
+            <TableBody>
+              {completedCourses.map((course) => (
+                <TableRow key={course.id}>
+                  <TableCell>{formatDateWithoutTimezone(course.date_requested)}</TableCell>
+                  <TableCell>
+                    <Typography variant="body2" fontWeight="medium">
+                      {course.scheduled_date ? formatDateWithoutTimezone(course.scheduled_date) : '-'}
+                    </Typography>
+                    {course.scheduled_start_time && course.scheduled_end_time && (
+                      <Typography variant="caption" color="textSecondary" display="block">
+                        {course.scheduled_start_time.slice(0,5)} - {course.scheduled_end_time.slice(0,5)}
+                      </Typography>
+                    )}
+                  </TableCell>
+                  <TableCell>{course.organization_name}</TableCell>
+                  <TableCell>{course.location}</TableCell>
+                  <TableCell>{course.course_type}</TableCell>
+                  <TableCell align="center">{course.registered_students}</TableCell>
+                  <TableCell align="center">{course.students_attended || 0}</TableCell>
+                  <TableCell>
+                    <Typography variant="body2" sx={{ maxWidth: 150, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {course.notes || '-'}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Typography variant="body2" color="primary" fontWeight="medium">
+                      {course.instructor_name || 'Not Assigned'}
+                    </Typography>
+                  </TableCell>
+                  <TableCell>
+                    <Chip label={course.status} color="info" size="small" />
+                  </TableCell>
+                </TableRow>
+              ))}
+              {completedCourses.length === 0 && (
+                <TableRow>
+                  <TableCell colSpan={10} align="center">
+                    <Typography variant="body2" color="textSecondary" sx={{ py: 2 }}>
+                      No completed courses yet
+                    </Typography>
+                  </TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </TableContainer>
+      </Box>
 
       {/* Instructor Form Dialog */}
       <Dialog open={open} onClose={handleClose}>
@@ -844,6 +1053,115 @@ const InstructorManagement: React.FC = () => {
             disabled={!assignmentData.instructorId || !assignmentData.scheduledDate}
           >
             Assign Instructor & Confirm Course
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Edit Schedule Dialog */}
+      <Dialog open={editScheduleOpen} onClose={handleEditScheduleClose} maxWidth="sm" fullWidth>
+        <DialogTitle>Edit Course Schedule</DialogTitle>
+        <DialogContent>
+          <Typography variant="subtitle1" gutterBottom sx={{ mb: 2 }}>
+            Course Type: {courseToEdit?.course_type}<br/>
+            Organization: {courseToEdit?.organization_name}<br/>
+            Location: {courseToEdit?.location}<br/>
+            Students: {courseToEdit?.registered_students}
+          </Typography>
+
+          <Stack spacing={2} sx={{ mt: 2 }}>
+            <TextField
+              select
+              label="Instructor"
+              value={editScheduleData.instructorId}
+              onChange={(e) => setEditScheduleData(prev => ({ ...prev, instructorId: e.target.value }))}
+              fullWidth
+            >
+              <MenuItem value="">Select an instructor</MenuItem>
+              {instructors.map((instructor) => (
+                <MenuItem key={instructor.id} value={instructor.id}>
+                  {instructor.instructor_name} ({instructor.email})
+                </MenuItem>
+              ))}
+            </TextField>
+
+            <TextField
+              type="date"
+              label="Scheduled Date"
+              value={editScheduleData.scheduledDate}
+              onChange={(e) => setEditScheduleData(prev => ({ ...prev, scheduledDate: e.target.value }))}
+              fullWidth
+              required
+              InputLabelProps={{ shrink: true }}
+            />
+
+            <TextField
+              type="time"
+              label="Start Time"
+              value={editScheduleData.startTime}
+              onChange={(e) => setEditScheduleData(prev => ({ ...prev, startTime: e.target.value }))}
+              fullWidth
+              InputLabelProps={{ shrink: true }}
+            />
+
+            <TextField
+              type="time"
+              label="End Time"
+              value={editScheduleData.endTime}
+              onChange={(e) => setEditScheduleData(prev => ({ ...prev, endTime: e.target.value }))}
+              fullWidth
+              InputLabelProps={{ shrink: true }}
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleEditScheduleClose}>Cancel</Button>
+          <Button 
+            onClick={handleEditScheduleSubmit} 
+            variant="contained" 
+            color="primary"
+            disabled={!editScheduleData.scheduledDate}
+          >
+            Update Schedule
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Cancel Course Dialog */}
+      <Dialog open={cancelCourseOpen} onClose={handleCancelCourseClose} maxWidth="sm" fullWidth>
+        <DialogTitle>Cancel Course</DialogTitle>
+        <DialogContent>
+          <Typography variant="subtitle1" gutterBottom sx={{ mb: 2 }}>
+            Course Type: {courseToCancel?.course_type}<br/>
+            Organization: {courseToCancel?.organization_name}<br/>
+            Location: {courseToCancel?.location}<br/>
+            Students: {courseToCancel?.registered_students}
+          </Typography>
+
+          <Typography variant="body2" color="error" sx={{ mb: 2 }}>
+            Are you sure you want to cancel this course? This action cannot be undone.
+          </Typography>
+
+          <TextField
+            label="Reason for Cancellation"
+            value={cancelData.reason}
+            onChange={(e) => setCancelData(prev => ({ ...prev, reason: e.target.value }))}
+            fullWidth
+            multiline
+            rows={4}
+            required
+            placeholder="Please provide a detailed reason for cancelling this course..."
+            sx={{ mt: 2 }}
+          />
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCancelCourseClose}>Cancel</Button>
+          <Button 
+            onClick={handleCancelCourseSubmit} 
+            variant="contained" 
+            color="error"
+            disabled={!cancelData.reason.trim()}
+          >
+            Cancel Course
           </Button>
         </DialogActions>
       </Dialog>

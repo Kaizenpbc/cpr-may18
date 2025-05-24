@@ -5,8 +5,6 @@ import {
   Grid,
   Paper,
   Typography,
-  Tab,
-  Tabs,
   Button,
   AppBar,
   Toolbar,
@@ -16,44 +14,11 @@ import {
 import { LogoutOutlined as LogoutIcon } from '@mui/icons-material';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import CourseManagement from './courseAdmin/CourseManagement';
-import ClassManagement from './courseAdmin/ClassManagement';
 import InstructorManagement from './courseAdmin/InstructorManagement';
-
-interface TabPanelProps {
-  children?: React.ReactNode;
-  index: number;
-  value: number;
-}
-
-function TabPanel(props: TabPanelProps) {
-  const { children, value, index, ...other } = props;
-
-  return (
-    <div
-      role="tabpanel"
-      hidden={value !== index}
-      id={`simple-tabpanel-${index}`}
-      aria-labelledby={`simple-tab-${index}`}
-      {...other}
-    >
-      {value === index && (
-        <Box sx={{ p: 3 }}>
-          {children}
-        </Box>
-      )}
-    </div>
-  );
-}
 
 const CourseAdminPortal: React.FC = () => {
   const { user, logout } = useAuth();
-  const [tabValue, setTabValue] = React.useState(0);
   const navigate = useNavigate();
-
-  const handleTabChange = (event: React.SyntheticEvent, newValue: number) => {
-    setTabValue(newValue);
-  };
 
   const handleLogout = () => {
     logout();
@@ -96,27 +61,7 @@ const CourseAdminPortal: React.FC = () => {
             Course Administration
           </Typography>
           
-          <Box sx={{ borderBottom: 1, borderColor: 'divider' }}>
-            <Tabs 
-              value={tabValue} 
-              onChange={handleTabChange}
-              aria-label="course admin tabs"
-            >
-              <Tab label="Instructor Management" />
-              <Tab label="Course Management" />
-              <Tab label="Class Management" />
-            </Tabs>
-          </Box>
-
-          <TabPanel value={tabValue} index={0}>
-            <InstructorManagement />
-          </TabPanel>
-          <TabPanel value={tabValue} index={1}>
-            <CourseManagement />
-          </TabPanel>
-          <TabPanel value={tabValue} index={2}>
-            <ClassManagement />
-          </TabPanel>
+          <InstructorManagement />
         </Paper>
       </Container>
     </Box>
