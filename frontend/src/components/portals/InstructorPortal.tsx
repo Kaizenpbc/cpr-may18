@@ -136,38 +136,45 @@ const InstructorPortal: React.FC = () => {
               path="/classes" 
               element={
                 <MyClassesView
-                  combinedItems={[
-                    // Add scheduled classes
-                    ...scheduledClasses.map(sc => ({
-                      ...sc,
-                      type: 'class' as const,
-                      key: `class-${sc.course_id}`,
-                      displayDate: sc.datescheduled,
-                      organizationname: sc.organizationname,
-                      location: sc.location,
-                      coursenumber: sc.course_id.toString(),
-                      coursetypename: sc.coursetypename,
-                      studentsregistered: sc.studentcount,
-                      studentsattendance: sc.studentsattendance,
-                      notes: '',
-                      status: sc.completed ? 'Completed' : 'Scheduled'
-                    })),
-                    // Add availability dates
-                    ...Array.from(availableDates).map(date => ({
-                      type: 'availability' as const,
-                      key: `availability-${date}`,
-                      displayDate: date,
-                      organizationname: '',
-                      location: '',
-                      coursenumber: '',
-                      coursetypename: '',
-                      studentsregistered: undefined,
-                      studentsattendance: undefined,
-                      notes: '',
-                      status: 'Available',
-                      course_id: undefined
-                    }))
-                  ].sort((a, b) => new Date(a.displayDate).getTime() - new Date(b.displayDate).getTime())}
+                  combinedItems={(() => {
+                    // Get dates that already have scheduled classes
+                    const scheduledDates = new Set(scheduledClasses.map(sc => sc.datescheduled));
+                    
+                    return [
+                      // Add scheduled classes
+                      ...scheduledClasses.map(sc => ({
+                        ...sc,
+                        type: 'class' as const,
+                        key: `class-${sc.course_id}`,
+                        displayDate: sc.datescheduled,
+                        organizationname: sc.organizationname,
+                        location: sc.location,
+                        coursenumber: sc.course_id.toString(),
+                        coursetypename: sc.coursetypename,
+                        studentsregistered: sc.studentcount,
+                        studentsattendance: sc.studentsattendance,
+                        notes: '',
+                        status: sc.completed ? 'Completed' : 'Scheduled'
+                      })),
+                      // Add availability dates ONLY if they don't conflict with scheduled classes
+                      ...Array.from(availableDates)
+                        .filter(date => !scheduledDates.has(date))
+                        .map(date => ({
+                          type: 'availability' as const,
+                          key: `availability-${date}`,
+                          displayDate: date,
+                          organizationname: '',
+                          location: '',
+                          coursenumber: '',
+                          coursetypename: '',
+                          studentsregistered: undefined,
+                          studentsattendance: undefined,
+                          notes: '',
+                          status: 'Available',
+                          course_id: undefined
+                        }))
+                    ].sort((a, b) => new Date(a.displayDate).getTime() - new Date(b.displayDate).getTime());
+                  })()}
                   onAttendanceClick={(item) => {
                     // Navigate to attendance view with selected class
                     navigate(`/instructor/attendance`);
