@@ -1,32 +1,83 @@
 /**
- * Analytics Service for Instructor Portal
- * Tracks user interactions, performance metrics, and errors
+ * @fileoverview Analytics Service for Instructor Portal
+ * Provides comprehensive tracking of user interactions, performance metrics, and errors
+ * Supports multiple analytics providers and includes development/production modes
+ * 
+ * @author CPR Training Portal Team
+ * @version 1.0.0
  */
 
+/**
+ * Interface for analytics events
+ * @interface AnalyticsEvent
+ */
 interface AnalyticsEvent {
+  /** The name of the event being tracked */
   event: string;
+  /** Additional properties associated with the event */
   properties?: Record<string, any>;
+  /** ISO timestamp when the event occurred */
   timestamp?: string;
+  /** Unique identifier for the user */
   userId?: string | number;
+  /** Unique session identifier */
   sessionId?: string;
 }
 
+/**
+ * Interface for performance metrics
+ * @interface PerformanceMetric
+ */
 interface PerformanceMetric {
+  /** Name of the performance metric */
   name: string;
+  /** Numeric value of the metric (usually in milliseconds) */
   value: number;
+  /** ISO timestamp when the metric was recorded */
   timestamp: string;
+  /** Additional metadata about the metric */
   metadata?: Record<string, any>;
 }
 
+/**
+ * Analytics Service class for tracking user interactions and performance
+ * Provides a unified interface for multiple analytics providers
+ * 
+ * @class AnalyticsService
+ * 
+ * @example
+ * ```typescript
+ * import analytics from './services/analytics';
+ * 
+ * // Set user
+ * analytics.setUser(123, { role: 'instructor' });
+ * 
+ * // Track events
+ * analytics.track('button_clicked', { button: 'save' });
+ * analytics.trackPageView('dashboard');
+ * 
+ * // Track errors
+ * analytics.trackError(new Error('Something went wrong'), 'component_name');
+ * ```
+ */
 class AnalyticsService {
+  /** Whether analytics tracking is enabled */
   private isEnabled: boolean;
+  /** Unique session identifier */
   private sessionId: string;
+  /** Current user identifier */
   private userId: string | number | null = null;
+  /** Queue for events before initialization */
   private queue: AnalyticsEvent[] = [];
+  /** Whether the service has been initialized */
   private isInitialized = false;
 
+  /**
+   * Creates an instance of AnalyticsService
+   * Automatically initializes if enabled
+   */
   constructor() {
-    this.isEnabled = process.env.NODE_ENV === 'production' || process.env.REACT_APP_ANALYTICS_ENABLED === 'true';
+    this.isEnabled = import.meta.env.PROD || import.meta.env.VITE_ANALYTICS_ENABLED === 'true';
     this.sessionId = this.generateSessionId();
     
     if (this.isEnabled) {
@@ -34,10 +85,22 @@ class AnalyticsService {
     }
   }
 
+  /**
+   * Generates a unique session identifier
+   * 
+   * @private
+   * @returns {string} Unique session ID
+   */
   private generateSessionId(): string {
     return `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   }
 
+  /**
+   * Initializes the analytics service
+   * Sets up tracking providers and processes queued events
+   * 
+   * @private
+   */
   private initialize() {
     // Initialize analytics (Google Analytics, Mixpanel, etc.)
     console.log('[Analytics] Service initialized', {
@@ -55,7 +118,19 @@ class AnalyticsService {
   }
 
   /**
-   * Set the current user for analytics tracking
+   * Sets the current user for analytics tracking
+   * Associates all future events with this user
+   * 
+   * @param {string | number} userId - Unique identifier for the user
+   * @param {Record<string, any>} [properties] - Additional user properties
+   * 
+   * @example
+   * ```typescript
+   * analytics.setUser(123, { 
+   *   role: 'instructor', 
+   *   email: 'instructor@example.com' 
+   * });
+   * ```
    */
   setUser(userId: string | number, properties?: Record<string, any>) {
     this.userId = userId;
@@ -70,7 +145,19 @@ class AnalyticsService {
   }
 
   /**
-   * Track a custom event
+   * Tracks a custom event with optional properties
+   * 
+   * @param {string} event - Name of the event to track
+   * @param {Record<string, any>} [properties] - Additional event properties
+   * 
+   * @example
+   * ```typescript
+   * analytics.track('class_completed', {
+   *   classId: 123,
+   *   duration: 3600,
+   *   studentsCount: 15
+   * });
+   * ```
    */
   track(event: string, properties?: Record<string, any>) {
     const analyticsEvent: AnalyticsEvent = {
@@ -82,7 +169,7 @@ class AnalyticsService {
         userAgent: navigator.userAgent,
         timestamp: new Date().toISOString()
       },
-      userId: this.userId,
+      userId: this.userId || undefined,
       sessionId: this.sessionId,
       timestamp: new Date().toISOString()
     };

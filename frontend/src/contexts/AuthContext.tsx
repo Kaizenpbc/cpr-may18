@@ -27,13 +27,26 @@ export const useAuth = () => {
 
 export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false); // Start with false instead of true
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [socket, setSocket] = useState<any>(null);
   const [isChecking, setIsChecking] = useState(false);
   
   const location = useLocation();
   const navigate = useNavigate();
+
+  // Failsafe: Never let loading state last more than 10 seconds
+  useEffect(() => {
+    const timeout = setTimeout(() => {
+      if (loading) {
+        console.log('[Debug] AuthContext - Forcing loading to false after timeout');
+        setLoading(false);
+        setIsChecking(false);
+      }
+    }, 10000);
+    
+    return () => clearTimeout(timeout);
+  }, [loading]);
 
   const checkAuth = async () => {
     // Prevent multiple concurrent auth checks
@@ -54,7 +67,10 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       const token = tokenService.getAccessToken();
       if (!token) {
         console.log('[Debug] AuthContext - No token found, user not authenticated');
+        setUser(null);
+        setIsAuthenticated(false);
         setLoading(false);
+        setIsChecking(false);
         return;
       }
 
@@ -96,8 +112,16 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
     let isMounted = true;
     
     const performAuthCheck = async () => {
-      if (isMounted) {
-        await checkAuth();
+      if (isMounted && !isChecking) {
+        // Only check auth if we have a token
+        const token = tokenService.getAccessToken();
+        if (token) {
+          setLoading(true);
+          await checkAuth();
+        } else {
+          console.log('[Debug] AuthContext - No token on mount, staying logged out');
+          setLoading(false);
+        }
       }
     };
     

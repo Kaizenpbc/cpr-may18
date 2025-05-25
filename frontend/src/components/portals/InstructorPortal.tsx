@@ -16,6 +16,7 @@ import { useInstructorData } from '../../hooks/useInstructorData';
 import InstructorLayout from './InstructorLayout';
 import AvailabilityView from '../views/instructor/AvailabilityView';
 import ErrorBoundary from '../common/ErrorBoundary';
+import ToastDemo from '../common/ToastDemo';
 import analytics from '../../services/analytics';
 
 // Lazy load components for better performance (using TypeScript files)
@@ -249,6 +250,14 @@ const InstructorPortal: React.FC = () => {
                         updated_at: cc.datescheduled
                       }))} 
                     />
+                  </ErrorBoundary>
+                } 
+              />
+              <Route 
+                path="/toast-demo" 
+                element={
+                  <ErrorBoundary onError={handleError}>
+                    <ToastDemo />
                   </ErrorBoundary>
                 } 
               />

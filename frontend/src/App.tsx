@@ -12,8 +12,8 @@ import CourseAdminPortal from './components/portals/CourseAdminPortal';
 import SuperAdminPortal from './components/portals/SuperAdminPortal';
 import AccountingPortal from './components/portals/AccountingPortal';
 import SystemAdminPortal from './components/portals/SystemAdminPortal';
-import { AuthProvider } from './contexts/AuthContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
+import ToastContainer from './components/common/ToastContainer';
 
 console.log('[TRACE] App.tsx - Starting to load dependencies');
 
@@ -30,9 +30,9 @@ function App() {
   try {
     console.log('[TRACE] App.tsx - Starting to render providers and router');
     return (
-      <AuthProvider>
-        <ErrorBoundary>
-          <Routes>
+      <ErrorBoundary>
+        <ToastContainer />
+        <Routes>
             {/* Public routes */}
             <Route path="/login" element={<Login />} />
             <Route path="/forgot-password" element={<ForgotPassword />} />
@@ -93,7 +93,6 @@ function App() {
             <Route path="*" element={<NotFound />} />
           </Routes>
         </ErrorBoundary>
-      </AuthProvider>
     );
   } catch (error) {
     console.error('[TRACE] App.tsx - Error during render:', error);

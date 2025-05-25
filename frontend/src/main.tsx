@@ -9,6 +9,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { LocalizationProvider } from '@mui/x-date-pickers';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { AuthProvider } from './contexts/AuthContext';
+import { ToastProvider } from './contexts/ToastContext';
+import { NetworkProvider } from './contexts/NetworkContext';
 import theme from './theme';
 import App from './App';
 import './index.css';
@@ -59,7 +61,11 @@ try {
               }}
             >
               <AuthProvider>
-                <App />
+                <NetworkProvider>
+                  <ToastProvider>
+                    <App />
+                  </ToastProvider>
+                </NetworkProvider>
               </AuthProvider>
             </BrowserRouter>
           </LocalizationProvider>
