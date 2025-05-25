@@ -3,6 +3,7 @@ import api from '../services/api';
 import { useAuth } from '../contexts/AuthContext';
 import { tokenService } from '../services/tokenService';
 import logger from '../utils/logger';
+import analytics from '../services/analytics';
 
 // Types
 interface ScheduledClass {
@@ -45,6 +46,8 @@ export const useInstructorData = () => {
   const loadData = useCallback(async () => {
     if (!isAuthenticated || !user) return;
 
+    const startTime = performance.now();
+
     try {
       setState(prev => ({ ...prev, loading: true, error: null }));
 
@@ -63,6 +66,19 @@ export const useInstructorData = () => {
         api.get('/api/v1/instructor/classes/completed')
       ]);
 
+      const loadTime = performance.now() - startTime;
+      analytics.trackPerformance({
+        name: 'instructor_data_load_time',
+        value: loadTime,
+        timestamp: new Date().toISOString(),
+        metadata: {
+          portal: 'instructor',
+          availabilityCount: availabilityRes.data.data?.length || 0,
+          classesCount: classesRes.data.data?.length || 0,
+          completedCount: completedRes.data.data?.classes?.length || completedRes.data.data?.length || 0
+        }
+      });
+
       setState({
         availableDates: new Set((availabilityRes.data.data || []).map((avail: { date: string }) => avail.date)),
         scheduledClasses: classesRes.data.data || [],
@@ -71,8 +87,19 @@ export const useInstructorData = () => {
         error: null
       });
 
+      analytics.trackInstructorAction('data_loaded_successfully', {
+        loadTime,
+        availabilityCount: availabilityRes.data.data?.length || 0,
+        classesCount: classesRes.data.data?.length || 0
+      });
+
     } catch (error: any) {
       logger.error('[useInstructorData] Error loading data:', error);
+      
+      analytics.trackError(error, 'instructor_data_loading', {
+        loadTime: performance.now() - startTime,
+        portal: 'instructor'
+      });
       
       if (error.response?.status === 401) {
         await logout();
