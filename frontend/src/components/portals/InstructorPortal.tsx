@@ -16,10 +16,10 @@ import { useInstructorData } from '../../hooks/useInstructorData';
 import InstructorLayout from './InstructorLayout';
 import AvailabilityView from '../views/instructor/AvailabilityView';
 
-// Lazy load components for better performance (using existing JSX files)
-const MyClassesView = lazy(() => import('../views/instructor/MyClassesView.jsx'));
+// Lazy load components for better performance (using TypeScript files)
+const MyClassesView = lazy(() => import('../views/instructor/MyClassesView.tsx'));
 const AttendanceView = lazy(() => import('../views/instructor/AttendanceView.jsx'));
-const InstructorArchiveTable = lazy(() => import('../tables/InstructorArchiveTable.jsx'));
+const InstructorArchiveTable = lazy(() => import('../tables/InstructorArchiveTable.tsx'));
 
 // Loading component
 const LoadingFallback = () => (
@@ -138,16 +138,17 @@ const InstructorPortal: React.FC = () => {
                 <MyClassesView
                   combinedItems={scheduledClasses.map(sc => ({
                     ...sc,
-                    type: 'class',
+                    type: 'class' as const,
                     key: `class-${sc.course_id}`,
-                    displayDate: sc.datescheduled
+                    displayDate: sc.datescheduled,
+                    status: sc.completed ? 'Completed' : 'Scheduled'
                   }))}
-                  onAttendanceClick={(classId: number) => {
+                  onAttendanceClick={(item) => {
                     // Navigate to attendance view with selected class
                     navigate(`/instructor/attendance`);
                   }}
-                  onMarkCompleteClick={async (classItem: any) => {
-                    const result = await completeClass(classItem.course_id);
+                  onMarkCompleteClick={async (classItem) => {
+                    const result = await completeClass(classItem.course_id || 0);
                     if (result.success) {
                       loadData();
                     }
@@ -167,7 +168,29 @@ const InstructorPortal: React.FC = () => {
               path="/archive" 
               element={
                 <InstructorArchiveTable 
-                  courses={completedClasses} 
+                  courses={completedClasses.map(cc => ({
+                    id: cc.course_id,
+                    course_id: cc.course_id,
+                    course_type: cc.coursetypename,
+                    course_type_id: 0,
+                    organization_id: 0,
+                    organization_name: cc.organizationname,
+                    location_id: 0,
+                    location_name: cc.location,
+                    address: '',
+                    start_date: cc.datescheduled,
+                    end_date: cc.datescheduled,
+                    start_time: '',
+                    end_time: '',
+                    max_students: cc.studentcount,
+                    current_students: cc.studentsattendance,
+                    price: 0,
+                    status: 'completed' as const,
+                    instructor_id: 0,
+                    instructor_name: '',
+                    created_at: '',
+                    updated_at: cc.datescheduled
+                  }))} 
                 />
               } 
             />
