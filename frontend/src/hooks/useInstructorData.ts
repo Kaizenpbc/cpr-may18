@@ -1,207 +1,170 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useCallback } from 'react';
 import api from '../services/api';
-import { useAuth } from '../contexts/AuthContext';
-import { tokenService } from '../services/tokenService';
-import logger from '../utils/logger';
+import { 
+  InstructorUser, 
+  Course, 
+  AvailabilitySlot, 
+  CourseRequest,
+  ApiResponse,
+  PaginatedResponse 
+} from '../types/instructor';
 
-// Types
-interface ScheduledClass {
-  course_id: number;
-  datescheduled: string;
-  completed: boolean;
-  organizationname: string;
-  coursetypename: string;
-  location: string;
-  studentcount: number;
-  studentsattendance: number;
-}
-
-interface Student {
-  student_id: number;
-  first_name: string;
-  last_name: string;
-  attendance: boolean;
-}
-
-interface InstructorDataState {
-  availableDates: Set<string>;
-  scheduledClasses: ScheduledClass[];
-  completedClasses: ScheduledClass[];
+interface UseInstructorDataReturn {
+  // State
+  instructorData: InstructorUser | null;
+  myClasses: Course[];
+  completedClasses: Course[];
+  availability: AvailabilitySlot[];
+  courseRequests: CourseRequest[];
   loading: boolean;
   error: string | null;
+
+  // Actions
+  loadInstructorData: () => Promise<void>;
+  loadAvailability: () => Promise<void>;
+  loadClasses: () => Promise<void>;
+  loadCompletedClasses: (page?: number) => Promise<void>;
+  addAvailability: (date: string) => Promise<void>;
+  removeAvailability: (date: string) => Promise<void>;
+  completeClass: (classId: number, completionData: any) => Promise<void>;
+  refreshData: () => Promise<void>;
 }
 
-export const useInstructorData = () => {
-  const { isAuthenticated, user, logout } = useAuth();
-  const [state, setState] = useState<InstructorDataState>({
-    availableDates: new Set(),
-    scheduledClasses: [],
-    completedClasses: [],
-    loading: true,
-    error: null
-  });
+export const useInstructorData = (): UseInstructorDataReturn => {
+  const [instructorData, setInstructorData] = useState<InstructorUser | null>(null);
+  const [myClasses, setMyClasses] = useState<Course[]>([]);
+  const [completedClasses, setCompletedClasses] = useState<Course[]>([]);
+  const [availability, setAvailability] = useState<AvailabilitySlot[]>([]);
+  const [courseRequests, setCourseRequests] = useState<CourseRequest[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  // Load all instructor data
-  const loadData = useCallback(async () => {
-    if (!isAuthenticated || !user) return;
-
+  const loadInstructorData = useCallback(async () => {
     try {
-      setState(prev => ({ ...prev, loading: true, error: null }));
-
-      // Verify token
-      const token = tokenService.getAccessToken();
-      if (!token) {
-        logger.error('[useInstructorData] No token available');
-        await logout();
-        return;
+      const response = await api.get<ApiResponse<InstructorUser>>('/api/v1/instructor/profile');
+      if (response.data.success) {
+        setInstructorData(response.data.data);
       }
-
-      // Parallel API calls for better performance
-      const [availabilityRes, classesRes, completedRes] = await Promise.all([
-        api.get('/api/v1/instructor/availability'),
-        api.get('/api/v1/instructor/classes'),
-        api.get('/api/v1/instructor/classes/completed')
-      ]);
-
-      setState({
-        availableDates: new Set(availabilityRes.data.data.map((avail: { date: string }) => avail.date)),
-        scheduledClasses: classesRes.data.data || [],
-        completedClasses: completedRes.data.data.classes || [],
-        loading: false,
-        error: null
-      });
-
-    } catch (error: any) {
-      logger.error('[useInstructorData] Error loading data:', error);
-      
-      if (error.response?.status === 401) {
-        await logout();
-        return;
-      }
-
-      setState(prev => ({
-        ...prev,
-        loading: false,
-        error: error.message || 'Failed to load instructor data'
-      }));
+    } catch (err) {
+      console.error('Failed to load instructor data:', err);
+      setError('Failed to load instructor data');
     }
-  }, [isAuthenticated, user, logout]);
+  }, []);
 
-  // Add availability date
+  const loadAvailability = useCallback(async () => {
+    try {
+      const response = await api.get<ApiResponse<AvailabilitySlot[]>>('/api/v1/instructor/availability');
+      if (response.data.success) {
+        setAvailability(response.data.data);
+      }
+    } catch (err) {
+      console.error('Failed to load availability:', err);
+    }
+  }, []);
+
+  const loadClasses = useCallback(async () => {
+    try {
+      const response = await api.get<ApiResponse<Course[]>>('/api/v1/instructor/classes');
+      if (response.data.success) {
+        setMyClasses(response.data.data);
+      }
+    } catch (err) {
+      console.error('Failed to load classes:', err);
+    }
+  }, []);
+
+  const loadCompletedClasses = useCallback(async (page = 1) => {
+    try {
+      const response = await api.get<PaginatedResponse<Course>>(
+        `/api/v1/instructor/classes/completed?page=${page}`
+      );
+      if (response.data.success) {
+        setCompletedClasses(response.data.data);
+      }
+    } catch (err) {
+      console.error('Failed to load completed classes:', err);
+    }
+  }, []);
+
   const addAvailability = useCallback(async (date: string) => {
     try {
-      const response = await api.post('/api/v1/instructor/availability', { date });
-      
+      const response = await api.post<ApiResponse<AvailabilitySlot>>(
+        '/api/v1/instructor/availability',
+        { date }
+      );
       if (response.data.success) {
-        setState(prev => ({
-          ...prev,
-          availableDates: new Set([...prev.availableDates, date])
-        }));
-        return { success: true };
+        await loadAvailability();
       }
-      
-      throw new Error(response.data.message || 'Failed to add availability');
-    } catch (error: any) {
-      logger.error('[useInstructorData] Error adding availability:', error);
-      return { success: false, error: error.message };
+    } catch (err) {
+      console.error('Failed to add availability:', err);
+      throw err;
     }
-  }, []);
+  }, [loadAvailability]);
 
-  // Remove availability date
   const removeAvailability = useCallback(async (date: string) => {
     try {
-      await api.delete(`/api/v1/instructor/availability/${date}`);
-      
-      setState(prev => {
-        const newDates = new Set(prev.availableDates);
-        newDates.delete(date);
-        return { ...prev, availableDates: newDates };
-      });
-      
-      return { success: true };
-    } catch (error: any) {
-      logger.error('[useInstructorData] Error removing availability:', error);
-      return { success: false, error: error.message };
-    }
-  }, []);
-
-  // Fetch students for a specific class
-  const fetchClassStudents = useCallback(async (courseId: number): Promise<Student[]> => {
-    try {
-      const response = await api.get('/api/v1/instructor/classes/students', { 
-        params: { course_id: courseId } 
-      });
-      return response.data || [];
-    } catch (error: any) {
-      logger.error('[useInstructorData] Error fetching students:', error);
-      throw error;
-    }
-  }, []);
-
-  // Update student attendance
-  const updateAttendance = useCallback(async (studentId: number, attendance: boolean) => {
-    try {
-      await api.post('/api/v1/instructor/classes/students/attendance', { 
-        student_id: studentId, 
-        attendance 
-      });
-      
-      // Reload classes to get updated attendance counts
-      await loadData();
-      
-      return { success: true };
-    } catch (error: any) {
-      logger.error('[useInstructorData] Error updating attendance:', error);
-      return { success: false, error: error.message };
-    }
-  }, [loadData]);
-
-  // Mark class as complete
-  const completeClass = useCallback(async (courseId: number) => {
-    try {
-      const response = await api.put(`/api/v1/instructor/classes/${courseId}/complete`, {
-        generateCertificates: false
-      });
-
+      const response = await api.delete<ApiResponse<void>>(
+        `/api/v1/instructor/availability/${date}`
+      );
       if (response.data.success) {
-        await loadData(); // Refresh all data
-        return { 
-          success: true, 
-          studentsAttended: response.data.data.students_attended 
-        };
+        await loadAvailability();
       }
-
-      throw new Error(response.data.message || 'Failed to complete class');
-    } catch (error: any) {
-      logger.error('[useInstructorData] Error completing class:', error);
-      
-      // Provide specific error messages
-      if (error.response?.status === 400 && error.response.data.message.includes('attendance')) {
-        return { 
-          success: false, 
-          error: 'Please mark attendance for all students before completing the class.' 
-        };
-      }
-      
-      return { 
-        success: false, 
-        error: error.response?.data?.message || error.message 
-      };
+    } catch (err) {
+      console.error('Failed to remove availability:', err);
+      throw err;
     }
-  }, [loadData]);
+  }, [loadAvailability]);
 
-  // Initial data load
-  useEffect(() => {
-    loadData();
-  }, [loadData]);
+  const completeClass = useCallback(async (classId: number, completionData: any) => {
+    try {
+      const response = await api.put<ApiResponse<Course>>(
+        `/api/v1/instructor/classes/${classId}/complete`,
+        completionData
+      );
+      if (response.data.success) {
+        await Promise.all([loadClasses(), loadCompletedClasses()]);
+      }
+    } catch (err) {
+      console.error('Failed to complete class:', err);
+      throw err;
+    }
+  }, [loadClasses, loadCompletedClasses]);
+
+  const refreshData = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      await Promise.all([
+        loadInstructorData(),
+        loadAvailability(),
+        loadClasses(),
+        loadCompletedClasses()
+      ]);
+    } catch (err) {
+      setError('Failed to refresh data');
+    } finally {
+      setLoading(false);
+    }
+  }, [loadInstructorData, loadAvailability, loadClasses, loadCompletedClasses]);
 
   return {
-    ...state,
-    loadData,
+    // State
+    instructorData,
+    myClasses,
+    completedClasses,
+    availability,
+    courseRequests,
+    loading,
+    error,
+
+    // Actions
+    loadInstructorData,
+    loadAvailability,
+    loadClasses,
+    loadCompletedClasses,
     addAvailability,
     removeAvailability,
-    fetchClassStudents,
-    updateAttendance,
-    completeClass
+    completeClass,
+    refreshData
   };
 }; 

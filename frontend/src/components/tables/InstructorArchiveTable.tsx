@@ -8,14 +8,18 @@ import {
     CheckCircle as CompletedIcon,
     Person as PersonIcon
 } from '@mui/icons-material';
+import { Course } from '../../types/instructor';
+
+interface InstructorArchiveTableProps {
+    courses: Course[];
+}
 
 /**
  * Commercial-grade instructor archive table for displaying completed courses
- * @param {Array} courses - Array of completed course objects
  */
-const InstructorArchiveTable = ({ courses = [] }) => {
+const InstructorArchiveTable: React.FC<InstructorArchiveTableProps> = ({ courses = [] }) => {
     
-    const formatDate = (dateString) => {
+    const formatDate = (dateString?: string): string => {
         if (!dateString) return '-';
         try {
             return new Date(dateString).toLocaleDateString('en-US', {
@@ -28,7 +32,7 @@ const InstructorArchiveTable = ({ courses = [] }) => {
         }
     };
 
-    const formatTime = (timeString) => {
+    const formatTime = (timeString?: string): string => {
         if (!timeString) return '';
         return timeString.slice(0, 5); // Convert "09:00:00" to "09:00"
     };
@@ -107,25 +111,25 @@ const InstructorArchiveTable = ({ courses = [] }) => {
                                     >
                                         <TableCell sx={{ backgroundColor: rowColor }}>
                                             <Typography variant="body2" fontWeight="medium">
-                                                {formatDate(course.datescheduled)}
+                                                {formatDate(course.start_date)}
                                             </Typography>
                                         </TableCell>
                                         
                                         <TableCell sx={{ backgroundColor: rowColor }}>
                                             <Typography variant="body2">
-                                                {course.coursetypename || 'CPR Class'}
+                                                {course.course_type || 'CPR Class'}
                                             </Typography>
                                         </TableCell>
                                         
                                         <TableCell sx={{ backgroundColor: rowColor }}>
                                             <Typography variant="body2">
-                                                {course.organizationname || 'Unassigned'}
+                                                {course.organization_name || 'Unassigned'}
                                             </Typography>
                                         </TableCell>
                                         
                                         <TableCell sx={{ backgroundColor: rowColor }}>
                                             <Typography variant="body2">
-                                                {course.location || 'TBD'}
+                                                {course.location_name || 'TBD'}
                                             </Typography>
                                         </TableCell>
                                         
@@ -139,17 +143,17 @@ const InstructorArchiveTable = ({ courses = [] }) => {
                                             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
                                                 <PersonIcon fontSize="small" color="action" />
                                                 <Typography variant="body2">
-                                                    {course.studentsattended || 0}
+                                                    {course.current_students || 0}
                                                 </Typography>
                                                 <Typography variant="body2" color="text.secondary">
-                                                    /{course.studentsregistered || course.max_students || 0}
+                                                    /{course.max_students || 0}
                                                 </Typography>
                                             </Box>
                                         </TableCell>
                                         
                                         <TableCell sx={{ backgroundColor: rowColor }}>
                                             <Typography variant="body2" color="text.secondary">
-                                                {formatDate(course.completion_date || course.date_completed)}
+                                                {formatDate(course.updated_at)}
                                             </Typography>
                                         </TableCell>
                                         

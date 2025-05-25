@@ -8,8 +8,19 @@ import {
     Visibility as VisibilityIcon,
     CheckCircle as CompleteIcon
 } from '@mui/icons-material';
+import { CombinedScheduleItem } from '../../../types/instructor';
 
-const MyClassesView = ({ combinedItems, onAttendanceClick, onMarkCompleteClick }) => {
+interface MyClassesViewProps {
+    combinedItems: CombinedScheduleItem[];
+    onAttendanceClick: (item: CombinedScheduleItem) => void;
+    onMarkCompleteClick: (item: CombinedScheduleItem) => void;
+}
+
+const MyClassesView: React.FC<MyClassesViewProps> = ({ 
+    combinedItems, 
+    onAttendanceClick, 
+    onMarkCompleteClick 
+}) => {
     return (
         <TableContainer component={Paper}>
             <Typography variant="h6" sx={{ p: 2 }}>My Schedule</Typography>
@@ -39,7 +50,7 @@ const MyClassesView = ({ combinedItems, onAttendanceClick, onMarkCompleteClick }
                         combinedItems.map((item, index) => {
                             const isAvailable = item.type === 'availability';
                             const isScheduled = item.type === 'class' && item.status === 'Scheduled';
-                            const isPastDate = new Date(item.displayDate) < new Date().setHours(0, 0, 0, 0);
+                            const isPastDate = new Date(item.displayDate) < new Date(new Date().setHours(0, 0, 0, 0));
                             const canMarkComplete = isScheduled && (isPastDate || new Date(item.displayDate).toDateString() === new Date().toDateString());
                             const rowColor = index % 2 === 0 ? '#ffffff' : '#f5f5f5';
                             
