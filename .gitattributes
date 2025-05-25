@@ -1,0 +1,133 @@
+# Auto detect text files and perform LF normalization
+* text=auto
+
+# Source code
+*.js text eol=lf
+*.jsx text eol=lf
+*.ts text eol=lf
+*.tsx text eol=lf
+*.json text eol=lf
+*.css text eol=lf
+*.scss text eol=lf
+*.sass text eol=lf
+*.less text eol=lf
+*.html text eol=lf
+*.htm text eol=lf
+*.xml text eol=lf
+*.svg text eol=lf
+*.md text eol=lf
+*.txt text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Configuration files
+*.config.js text eol=lf
+*.config.ts text eol=lf
+*.conf text eol=lf
+*.ini text eol=lf
+*.toml text eol=lf
+.env* text eol=lf
+.gitignore text eol=lf
+.gitattributes text eol=lf
+.editorconfig text eol=lf
+.eslintrc* text eol=lf
+.prettierrc* text eol=lf
+tsconfig*.json text eol=lf
+package*.json text eol=lf
+
+# Shell scripts
+*.sh text eol=lf
+*.bash text eol=lf
+*.zsh text eol=lf
+*.fish text eol=lf
+
+# Windows scripts
+*.bat text eol=crlf
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# SQL files
+*.sql text eol=lf
+
+# Documentation
+*.rst text eol=lf
+*.tex text eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.mov binary
+*.mp4 binary
+*.mp3 binary
+*.flv binary
+*.fla binary
+*.swf binary
+*.gz binary
+*.zip binary
+*.7z binary
+*.ttf binary
+*.eot binary
+*.woff binary
+*.woff2 binary
+*.pyc binary
+*.pdf binary
+*.ez binary
+*.bz2 binary
+*.swp binary
+*.db binary
+*.sqlite binary
+*.sqlite3 binary
+
+# Archives
+*.tar linguist-generated=true
+*.tar.gz linguist-generated=true
+*.zip linguist-generated=true
+
+# Logs
+*.log linguist-generated=true
+
+# Build outputs
+dist/ linguist-generated=true
+build/ linguist-generated=true
+coverage/ linguist-generated=true
+
+# Dependencies
+node_modules/ linguist-vendored=true
+vendor/ linguist-vendored=true
+
+# Language detection
+*.js linguist-language=JavaScript
+*.jsx linguist-language=JavaScript
+*.ts linguist-language=TypeScript
+*.tsx linguist-language=TypeScript
+*.css linguist-language=CSS
+*.scss linguist-language=SCSS
+*.html linguist-language=HTML
+*.md linguist-language=Markdown
+*.sql linguist-language=SQL
+
+# Diff settings
+*.json diff=json
+*.md diff=markdown
+*.sql diff=sql
+
+# Merge settings
+*.json merge=ours
+package-lock.json merge=ours
+yarn.lock merge=ours
+
+# Export ignore (files not included in git archive)
+.gitignore export-ignore
+.gitattributes export-ignore
+.github/ export-ignore
+.vscode/ export-ignore
+.idea/ export-ignore
+*.log export-ignore
+node_modules/ export-ignore
+coverage/ export-ignore
+.nyc_output/ export-ignore
+test-results/ export-ignore
+playwright-report/ export-ignore 

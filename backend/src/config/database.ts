@@ -456,6 +456,94 @@ const initializeDatabase = async () => {
       ON course_students(course_request_id);
     `);
 
+    // Insert sample course requests for analytics (only if none exist)
+    try {
+      const existingRequests = await pool.query('SELECT COUNT(*) FROM course_requests');
+      if (parseInt(existingRequests.rows[0].count) === 0) {
+        console.log('Adding sample course requests for analytics...');
+        
+        // Get organization and course type IDs
+        const orgResult = await pool.query('SELECT id FROM organizations LIMIT 1');
+        const courseTypesResult = await pool.query('SELECT id, name FROM class_types');
+        
+        if (orgResult.rows.length > 0 && courseTypesResult.rows.length > 0) {
+        const orgId = orgResult.rows[0].id;
+        const courseTypes = courseTypesResult.rows;
+        
+        // Create sample requests over the past 12 months
+        for (let i = 0; i < 15; i++) {
+          const monthsAgo = Math.floor(Math.random() * 12);
+          const daysAgo = Math.floor(Math.random() * 30);
+          const requestDate = new Date();
+          requestDate.setMonth(requestDate.getMonth() - monthsAgo);
+          requestDate.setDate(requestDate.getDate() - daysAgo);
+          
+          const preferredDate = new Date(requestDate);
+          preferredDate.setDate(preferredDate.getDate() + Math.floor(Math.random() * 60) + 7); // 1-9 weeks later
+          
+          const courseType = courseTypes[Math.floor(Math.random() * courseTypes.length)];
+          const studentCount = Math.floor(Math.random() * 20) + 5; // 5-25 students
+          const status = Math.random() > 0.3 ? 'completed' : (Math.random() > 0.5 ? 'confirmed' : 'pending');
+          
+          let scheduledDate = null;
+          let completedAt = null;
+          let instructorId = null;
+          
+          if (status === 'completed' || status === 'confirmed') {
+            scheduledDate = preferredDate;
+            if (!instructorId) {
+              const instructorResult = await pool.query('SELECT id FROM users WHERE role = \'instructor\' LIMIT 1');
+              instructorId = instructorResult.rows[0]?.id;
+            }
+            
+            if (status === 'completed') {
+              completedAt = new Date(scheduledDate);
+              completedAt.setHours(completedAt.getHours() + 3); // 3 hours later
+            }
+          }
+          
+          const courseRequest = await pool.query(`
+            INSERT INTO course_requests (
+              organization_id, course_type_id, date_requested, preferred_date, 
+              location, registered_students, notes, status, instructor_id, 
+              scheduled_date, completed_at, created_at
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $3)
+            RETURNING id
+          `, [
+            orgId, courseType.id, requestDate, preferredDate,
+            `Training Room ${Math.floor(Math.random() * 5) + 1}`, studentCount,
+            `Sample ${courseType.name} training request`, status, instructorId,
+            scheduledDate, completedAt
+          ]);
+          
+          // Add sample students for completed courses
+          if (status === 'completed') {
+            const attendanceRate = 0.7 + Math.random() * 0.25; // 70-95% attendance
+            const attendedCount = Math.floor(studentCount * attendanceRate);
+            
+            for (let j = 0; j < studentCount; j++) {
+              const attended = j < attendedCount;
+              await pool.query(`
+                INSERT INTO course_students (course_request_id, first_name, last_name, email, attended)
+                VALUES ($1, $2, $3, $4, $5)
+              `, [
+                courseRequest.rows[0].id,
+                `Student${j + 1}`,
+                `LastName${j + 1}`,
+                `student${j + 1}@example.com`,
+                attended
+              ]);
+            }
+          }
+                 }
+         console.log('Sample course requests and student data added successfully');
+       }
+     }
+    } catch (error) {
+      console.error('Error adding sample data:', error);
+      // Continue without sample data if there's an error
+    }
+
     console.log('Database tables initialized successfully');
   } catch (error) {
     console.error('Error initializing database:', error);

@@ -28,7 +28,8 @@ import {
     VpnKey as PasswordIcon,
     School as ClassManagementIcon,
     Groups as StudentsIcon,
-    Person as ProfileIcon
+    Person as ProfileIcon,
+    Analytics as AnalyticsIcon
 } from '@mui/icons-material';
 // Lazy load components for better performance
 const ScheduleCourseForm = lazy(() => import('../forms/ScheduleCourseForm'));
@@ -36,6 +37,7 @@ const OrganizationCoursesTable = lazy(() => import('../tables/OrganizationCourse
 const StudentUploadDialog = lazy(() => import('../dialogs/StudentUploadDialog'));
 const ViewStudentsDialog = lazy(() => import('../dialogs/ViewStudentsDialog'));
 const OrganizationProfile = lazy(() => import('../views/organization/OrganizationProfile'));
+const OrganizationAnalytics = lazy(() => import('../organization/OrganizationAnalytics'));
 
 const drawerWidth = 240;
 
@@ -324,6 +326,16 @@ const OrganizationPortal = () => {
             );
         }
 
+        if (selectedView === 'analytics') {
+            return (
+                <ErrorBoundary onError={handleError}>
+                    <Suspense fallback={<LoadingFallback />}>
+                        <OrganizationAnalytics />
+                    </Suspense>
+                </ErrorBoundary>
+            );
+        }
+
         return null;
     };
 
@@ -472,6 +484,35 @@ const OrganizationPortal = () => {
                                 <ProfileIcon />
                             </ListItemIcon>
                             <ListItemText primary="Profile" />
+                        </ListItem>
+                        <ListItem 
+                            component="div" 
+                            selected={selectedView === 'analytics'}
+                            onClick={() => {
+                                analytics.trackOrganizationAction('navigation', { 
+                                    from: selectedView, 
+                                    to: 'analytics',
+                                    organizationId: user?.organizationId 
+                                });
+                                setSelectedView('analytics');
+                            }}
+                            sx={{
+                                cursor: 'pointer', 
+                                py: 1.5, 
+                                backgroundColor: selectedView === 'analytics' ? 'primary.light' : 'transparent',
+                                color: selectedView === 'analytics' ? 'primary.contrastText' : 'inherit',
+                                '& .MuiListItemIcon-root': {
+                                    color: selectedView === 'analytics' ? 'primary.contrastText' : 'inherit',
+                                },
+                                '&:hover': {
+                                    backgroundColor: selectedView === 'analytics' ? 'primary.main' : 'action.hover',
+                                }
+                            }}
+                        >
+                            <ListItemIcon>
+                                <AnalyticsIcon />
+                            </ListItemIcon>
+                            <ListItemText primary="Analytics" />
                         </ListItem>
                         <Divider />
                         <ListItem 

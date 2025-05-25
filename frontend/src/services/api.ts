@@ -406,6 +406,17 @@ export const sysAdminApi = {
   }
 };
 
+// Organization Analytics API
+export const getOrganizationCourseRequestAnalytics = async (timeframe: string = '12'): Promise<any> => {
+  const response = await api.get(`/api/v1/organization/analytics/course-requests?timeframe=${timeframe}`);
+  return extractData(response);
+};
+
+export const getOrganizationStudentParticipationAnalytics = async (timeframe: string = '12'): Promise<any> => {
+  const response = await api.get(`/api/v1/organization/analytics/student-participation?timeframe=${timeframe}`);
+  return extractData(response);
+};
+
 export default api;
 
 console.log('[Debug] api.ts - API service initialized'); 

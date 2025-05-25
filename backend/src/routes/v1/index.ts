@@ -337,6 +337,274 @@ router.get('/organization/courses', asyncHandler(async (req: Request, res: Respo
   }
 }));
 
+// Organization Analytics Endpoints
+
+// Course Request Analytics
+router.get('/organization/analytics/course-requests', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const organizationId = req.user?.organizationId;
+    const { timeframe = '12' } = req.query; // Default to 12 months
+
+    if (!organizationId) {
+      throw new AppError(400, errorCodes.VALIDATION_ERROR, 'User must be associated with an organization');
+    }
+
+    // Request Volume Trends (Monthly)
+    const volumeTrends = await pool.query(`
+      WITH monthly_data AS (
+        SELECT 
+          TO_CHAR(DATE_TRUNC('month', generate_series(
+            CURRENT_DATE - INTERVAL '${timeframe} months',
+            CURRENT_DATE,
+            '1 month'
+          )), 'YYYY-MM') as month,
+          TO_CHAR(DATE_TRUNC('month', generate_series(
+            CURRENT_DATE - INTERVAL '${timeframe} months',
+            CURRENT_DATE,
+            '1 month'
+          )), 'Mon YYYY') as month_label
+      )
+      SELECT 
+        md.month,
+        md.month_label,
+        COALESCE(COUNT(cr.id), 0) as request_count
+      FROM monthly_data md
+      LEFT JOIN course_requests cr ON TO_CHAR(DATE_TRUNC('month', cr.created_at), 'YYYY-MM') = md.month
+        AND cr.organization_id = $1
+      GROUP BY md.month, md.month_label
+      ORDER BY md.month
+    `, [organizationId]);
+
+    // Course Type Preferences
+    const courseTypePreferences = await pool.query(`
+      SELECT 
+        ct.name as course_type,
+        COUNT(cr.id) as request_count,
+        ROUND((COUNT(cr.id) * 100.0 / SUM(COUNT(cr.id)) OVER ()), 1) as percentage
+      FROM course_requests cr
+      JOIN class_types ct ON cr.course_type_id = ct.id
+      WHERE cr.organization_id = $1
+        AND cr.created_at >= CURRENT_DATE - INTERVAL '${timeframe} months'
+      GROUP BY ct.name
+      ORDER BY request_count DESC
+    `, [organizationId]);
+
+    // Seasonal Patterns (by month of year)
+    const seasonalPatterns = await pool.query(`
+      SELECT 
+        EXTRACT(MONTH FROM cr.preferred_date) as month_number,
+        TO_CHAR(DATE_TRUNC('month', cr.preferred_date), 'Month') as month_name,
+        COUNT(cr.id) as request_count,
+        AVG(EXTRACT(DAY FROM (cr.preferred_date - cr.created_at::date))) as avg_lead_time_days
+      FROM course_requests cr
+      WHERE cr.organization_id = $1
+        AND cr.created_at >= CURRENT_DATE - INTERVAL '${timeframe} months'
+        AND cr.preferred_date IS NOT NULL
+      GROUP BY EXTRACT(MONTH FROM cr.preferred_date), TO_CHAR(DATE_TRUNC('month', cr.preferred_date), 'Month')
+      ORDER BY month_number
+    `, [organizationId]);
+
+    // Lead Time Analysis
+    const leadTimeAnalysis = await pool.query(`
+      SELECT 
+        CASE 
+          WHEN EXTRACT(DAY FROM (cr.preferred_date - cr.created_at::date)) <= 7 THEN '0-7 days'
+          WHEN EXTRACT(DAY FROM (cr.preferred_date - cr.created_at::date)) <= 14 THEN '8-14 days'
+          WHEN EXTRACT(DAY FROM (cr.preferred_date - cr.created_at::date)) <= 30 THEN '15-30 days'
+          WHEN EXTRACT(DAY FROM (cr.preferred_date - cr.created_at::date)) <= 60 THEN '31-60 days'
+          ELSE '60+ days'
+        END as lead_time_range,
+        COUNT(cr.id) as request_count,
+        ROUND(AVG(EXTRACT(DAY FROM (cr.preferred_date - cr.created_at::date))), 1) as avg_days
+      FROM course_requests cr
+      WHERE cr.organization_id = $1
+        AND cr.created_at >= CURRENT_DATE - INTERVAL '${timeframe} months'
+        AND cr.preferred_date IS NOT NULL
+        AND cr.preferred_date >= cr.created_at::date
+      GROUP BY 
+        CASE 
+          WHEN EXTRACT(DAY FROM (cr.preferred_date - cr.created_at::date)) <= 7 THEN '0-7 days'
+          WHEN EXTRACT(DAY FROM (cr.preferred_date - cr.created_at::date)) <= 14 THEN '8-14 days'
+          WHEN EXTRACT(DAY FROM (cr.preferred_date - cr.created_at::date)) <= 30 THEN '15-30 days'
+          WHEN EXTRACT(DAY FROM (cr.preferred_date - cr.created_at::date)) <= 60 THEN '31-60 days'
+          ELSE '60+ days'
+        END
+      ORDER BY 
+        CASE 
+          WHEN lead_time_range = '0-7 days' THEN 1
+          WHEN lead_time_range = '8-14 days' THEN 2
+          WHEN lead_time_range = '15-30 days' THEN 3
+          WHEN lead_time_range = '31-60 days' THEN 4
+          ELSE 5
+        END
+    `, [organizationId]);
+
+    return res.json(ApiResponseBuilder.success({
+      volumeTrends: volumeTrends.rows,
+      courseTypePreferences: courseTypePreferences.rows,
+      seasonalPatterns: seasonalPatterns.rows,
+      leadTimeAnalysis: leadTimeAnalysis.rows,
+      timeframe: `${timeframe} months`
+    }));
+  } catch (error: any) {
+    console.error('Error fetching course request analytics:', error);
+    throw new AppError(500, errorCodes.DB_QUERY_ERROR, 'Failed to fetch course request analytics');
+  }
+}));
+
+// Student Participation Analytics
+router.get('/organization/analytics/student-participation', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const organizationId = req.user?.organizationId;
+    const { timeframe = '12' } = req.query; // Default to 12 months
+
+    if (!organizationId) {
+      throw new AppError(400, errorCodes.VALIDATION_ERROR, 'User must be associated with an organization');
+    }
+
+    // Attendance Rates
+    const attendanceRates = await pool.query(`
+      SELECT 
+        ct.name as course_type,
+        COUNT(cs.id) as total_registered,
+        COUNT(CASE WHEN cs.attended = true THEN 1 END) as total_attended,
+        CASE 
+          WHEN COUNT(cs.id) > 0 THEN 
+            ROUND((COUNT(CASE WHEN cs.attended = true THEN 1 END) * 100.0 / COUNT(cs.id)), 1)
+          ELSE 0 
+        END as attendance_rate
+      FROM course_requests cr
+      JOIN class_types ct ON cr.course_type_id = ct.id
+      LEFT JOIN course_students cs ON cr.id = cs.course_request_id
+      WHERE cr.organization_id = $1
+        AND cr.created_at >= CURRENT_DATE - INTERVAL '${timeframe} months'
+        AND cr.status = 'completed'
+      GROUP BY ct.name
+      ORDER BY attendance_rate DESC
+    `, [organizationId]);
+
+    // No-Show Patterns (Monthly trends)
+    const noShowPatterns = await pool.query(`
+      WITH monthly_attendance AS (
+        SELECT 
+          TO_CHAR(DATE_TRUNC('month', cr.completed_at), 'YYYY-MM') as month,
+          TO_CHAR(DATE_TRUNC('month', cr.completed_at), 'Mon YYYY') as month_label,
+          COUNT(cs.id) as total_registered,
+          COUNT(CASE WHEN cs.attended = true THEN 1 END) as total_attended,
+          COUNT(CASE WHEN cs.attended = false OR cs.attended IS NULL THEN 1 END) as no_shows
+        FROM course_requests cr
+        LEFT JOIN course_students cs ON cr.id = cs.course_request_id
+        WHERE cr.organization_id = $1
+          AND cr.status = 'completed'
+          AND cr.completed_at >= CURRENT_DATE - INTERVAL '${timeframe} months'
+        GROUP BY DATE_TRUNC('month', cr.completed_at)
+      )
+      SELECT 
+        month,
+        month_label,
+        total_registered,
+        total_attended,
+        no_shows,
+        CASE 
+          WHEN total_registered > 0 THEN 
+            ROUND((no_shows * 100.0 / total_registered), 1)
+          ELSE 0 
+        END as no_show_rate
+      FROM monthly_attendance
+      WHERE month IS NOT NULL
+      ORDER BY month
+    `, [organizationId]);
+
+    // Class Size Optimization
+    const classSizeOptimization = await pool.query(`
+      SELECT 
+        cr.registered_students as requested_size,
+        COUNT(cs.id) as actual_registered,
+        COUNT(CASE WHEN cs.attended = true THEN 1 END) as actual_attended,
+        CASE 
+          WHEN COUNT(cs.id) > 0 THEN 
+            ROUND((COUNT(CASE WHEN cs.attended = true THEN 1 END) * 100.0 / COUNT(cs.id)), 1)
+          ELSE 0 
+        END as utilization_rate,
+        COUNT(cr.id) as course_count
+      FROM course_requests cr
+      LEFT JOIN course_students cs ON cr.id = cs.course_request_id
+      WHERE cr.organization_id = $1
+        AND cr.created_at >= CURRENT_DATE - INTERVAL '${timeframe} months'
+        AND cr.status = 'completed'
+      GROUP BY cr.registered_students
+      ORDER BY cr.registered_students
+    `, [organizationId]);
+
+    // Completion Rates by Course Type
+    const completionRates = await pool.query(`
+      SELECT 
+        ct.name as course_type,
+        COUNT(CASE WHEN cr.status = 'completed' THEN 1 END) as completed_courses,
+        COUNT(CASE WHEN cr.status = 'cancelled' THEN 1 END) as cancelled_courses,
+        COUNT(cr.id) as total_courses,
+        CASE 
+          WHEN COUNT(cr.id) > 0 THEN 
+            ROUND((COUNT(CASE WHEN cr.status = 'completed' THEN 1 END) * 100.0 / COUNT(cr.id)), 1)
+          ELSE 0 
+        END as completion_rate,
+        AVG(CASE WHEN cs.student_count > 0 THEN cs.attended_count * 100.0 / cs.student_count END) as avg_student_completion_rate
+      FROM course_requests cr
+      JOIN class_types ct ON cr.course_type_id = ct.id
+      LEFT JOIN (
+        SELECT 
+          course_request_id,
+          COUNT(*) as student_count,
+          COUNT(CASE WHEN attended = true THEN 1 END) as attended_count
+        FROM course_students
+        GROUP BY course_request_id
+      ) cs ON cr.id = cs.course_request_id
+      WHERE cr.organization_id = $1
+        AND cr.created_at >= CURRENT_DATE - INTERVAL '${timeframe} months'
+      GROUP BY ct.name
+      ORDER BY completion_rate DESC
+    `, [organizationId]);
+
+    // Overall Summary Stats
+    const summaryStats = await pool.query(`
+      SELECT 
+        COUNT(DISTINCT cr.id) as total_courses_requested,
+        COUNT(CASE WHEN cr.status = 'completed' THEN 1 END) as total_courses_completed,
+        COUNT(CASE WHEN cr.status = 'cancelled' THEN 1 END) as total_courses_cancelled,
+        COALESCE(SUM(cs.student_count), 0) as total_students_registered,
+        COALESCE(SUM(cs.attended_count), 0) as total_students_attended,
+        CASE 
+          WHEN SUM(cs.student_count) > 0 THEN 
+            ROUND((SUM(cs.attended_count) * 100.0 / SUM(cs.student_count)), 1)
+          ELSE 0 
+        END as overall_attendance_rate
+      FROM course_requests cr
+      LEFT JOIN (
+        SELECT 
+          course_request_id,
+          COUNT(*) as student_count,
+          COUNT(CASE WHEN attended = true THEN 1 END) as attended_count
+        FROM course_students
+        GROUP BY course_request_id
+      ) cs ON cr.id = cs.course_request_id
+      WHERE cr.organization_id = $1
+        AND cr.created_at >= CURRENT_DATE - INTERVAL '${timeframe} months'
+    `, [organizationId]);
+
+    return res.json(ApiResponseBuilder.success({
+      attendanceRates: attendanceRates.rows,
+      noShowPatterns: noShowPatterns.rows,
+      classSizeOptimization: classSizeOptimization.rows,
+      completionRates: completionRates.rows,
+      summaryStats: summaryStats.rows[0],
+      timeframe: `${timeframe} months`
+    }));
+  } catch (error: any) {
+    console.error('Error fetching student participation analytics:', error);
+    throw new AppError(500, errorCodes.DB_QUERY_ERROR, 'Failed to fetch student participation analytics');
+  }
+}));
+
 // Course admin endpoints for managing course requests
 router.get('/courses/pending', asyncHandler(async (_req: Request, res: Response) => {
   try {
