@@ -269,6 +269,28 @@ const initializeDatabase = async () => {
       );
     `);
 
+    // Add preferred_date column to course_requests table if it doesn't exist
+    await pool.query(`
+      DO $$ 
+      BEGIN 
+        IF NOT EXISTS (
+          SELECT 1 
+          FROM information_schema.columns 
+          WHERE table_name = 'course_requests' AND column_name = 'preferred_date'
+        ) THEN 
+          ALTER TABLE course_requests ADD COLUMN preferred_date DATE;
+        END IF;
+      END $$;
+    `);
+
+    // Migrate existing data: move date_requested to preferred_date and set date_requested to created_at
+    await pool.query(`
+      UPDATE course_requests 
+      SET preferred_date = date_requested, 
+          date_requested = created_at::DATE 
+      WHERE preferred_date IS NULL;
+    `);
+
     // Add organization_id to users table if it doesn't exist
     await pool.query(`
       DO $$ 

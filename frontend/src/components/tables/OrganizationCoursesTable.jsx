@@ -85,6 +85,7 @@ const OrganizationCoursesTable = ({
                 <TableHead>
                     <TableRow>
                         <TableCell sx={{ fontWeight: 'bold' }}>Date Requested</TableCell>
+                        <TableCell sx={{ fontWeight: 'bold' }}>Preferred Date</TableCell>
                         <TableCell sx={{ fontWeight: 'bold' }}>Scheduled Date</TableCell>
                         <TableCell sx={{ fontWeight: 'bold' }}>Scheduled Time</TableCell>
                         <TableCell sx={{ fontWeight: 'bold' }}>Course Type</TableCell>
@@ -101,6 +102,7 @@ const OrganizationCoursesTable = ({
                     {courses.map((course) => (
                         <TableRow key={course.id} hover>
                             <TableCell>{formatDate(course.date_requested)}</TableCell>
+                            <TableCell>{formatDate(course.preferred_date)}</TableCell>
                             <TableCell>{course.scheduled_date ? formatDate(course.scheduled_date) : '-'}</TableCell>
                             <TableCell>{course.scheduled_start_time ? formatTime(course.scheduled_start_time) : '-'}</TableCell>
                             <TableCell>{course.course_type || '-'}</TableCell>

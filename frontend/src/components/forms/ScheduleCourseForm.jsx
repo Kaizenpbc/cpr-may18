@@ -7,7 +7,7 @@ import logger from '../../utils/logger';
 const ScheduleCourseForm = ({ onCourseScheduled }) => {
     const { user } = useAuth();
     const [formData, setFormData] = useState({
-        dateRequested: '',
+        preferredDate: '',
         location: '',
         courseTypeId: '',
         registeredStudents: '',
@@ -58,8 +58,8 @@ const ScheduleCourseForm = ({ onCourseScheduled }) => {
         logger.info('[handleSubmit] Form submitted with data:', formData);
 
         // Basic validation
-        if (!formData.dateRequested || !formData.location || !formData.courseTypeId || formData.registeredStudents === '') {
-            setError('Please fill in all required fields (Date, Location, Course Type, # Students).');
+        if (!formData.preferredDate || !formData.location || !formData.courseTypeId || formData.registeredStudents === '') {
+            setError('Please fill in all required fields (Preferred Date, Location, Course Type, # Students).');
             setIsSubmitting(false);
             return;
         }
@@ -79,7 +79,7 @@ const ScheduleCourseForm = ({ onCourseScheduled }) => {
                 setSuccessMessage(message);
                 // Clear form
                 setFormData({
-                    dateRequested: '',
+                    preferredDate: '',
                     location: '',
                     courseTypeId: '',
                     registeredStudents: '',
@@ -142,19 +142,32 @@ const ScheduleCourseForm = ({ onCourseScheduled }) => {
                             helperText="This organization is automatically assigned based on your account"
                         />
                     </Grid>
-                    {/* Date Requested */}
+                    {/* Date Requested (Auto-generated) */}
+                    <Grid item xs={12} sm={6}>
+                        <TextField
+                            fullWidth
+                            label="Date Requested"
+                            value={new Date().toLocaleDateString()}
+                            disabled
+                            variant="filled"
+                            InputProps={{ readOnly: true }}
+                            helperText="Automatically set to today's date when request is submitted"
+                        />
+                    </Grid>
+                    {/* Preferred Course Date */}
                     <Grid item xs={12} sm={6}>
                         <TextField
                             required
                             fullWidth
-                            id="dateRequested"
-                            label="Date Requested"
-                            name="dateRequested"
+                            id="preferredDate"
+                            label="Preferred Course Date"
+                            name="preferredDate"
                             type="date" 
                             InputLabelProps={{ shrink: true }}
-                            value={formData.dateRequested}
+                            value={formData.preferredDate}
                             onChange={handleChange}
                             disabled={isSubmitting}
+                            helperText="When would you like the course to be scheduled?"
                         />
                     </Grid>
                     {/* Course Type Dropdown */}

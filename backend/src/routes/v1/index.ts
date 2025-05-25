@@ -250,23 +250,23 @@ router.get('/course-types', asyncHandler(async (_req: Request, res: Response) =>
 // Organization course request endpoints
 router.post('/organization/course-request', asyncHandler(async (req: Request, res: Response) => {
   try {
-    const { dateRequested, location, courseTypeId, registeredStudents, notes } = req.body;
+    const { preferredDate, location, courseTypeId, registeredStudents, notes } = req.body;
     const organizationId = req.user?.organizationId;
 
     if (!organizationId) {
       throw new AppError(400, errorCodes.VALIDATION_ERROR, 'User must be associated with an organization');
     }
 
-    if (!dateRequested || !location || !courseTypeId || registeredStudents === undefined) {
+    if (!preferredDate || !location || !courseTypeId || registeredStudents === undefined) {
       throw new AppError(400, errorCodes.VALIDATION_ERROR, 'Missing required fields');
     }
 
     const result = await pool.query(
       `INSERT INTO course_requests 
-       (organization_id, course_type_id, date_requested, location, registered_students, notes, status) 
-       VALUES ($1, $2, $3, $4, $5, $6, 'pending') 
+       (organization_id, course_type_id, date_requested, preferred_date, location, registered_students, notes, status) 
+       VALUES ($1, $2, CURRENT_DATE, $3, $4, $5, $6, 'pending') 
        RETURNING *`,
-      [organizationId, courseTypeId, dateRequested, location, registeredStudents, notes]
+      [organizationId, courseTypeId, preferredDate, location, registeredStudents, notes]
     );
 
     return res.json({
@@ -293,6 +293,7 @@ router.get('/organization/courses', asyncHandler(async (req: Request, res: Respo
       `SELECT 
         cr.id,
         cr.date_requested,
+        cr.preferred_date,
         cr.location,
         cr.registered_students,
         cr.notes,
