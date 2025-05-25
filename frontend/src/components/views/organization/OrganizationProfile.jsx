@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Box,
   Typography,
@@ -41,27 +41,39 @@ const OrganizationProfile = ({ showSnackbar }) => {
   const [emailNotifications, setEmailNotifications] = useState(true);
   const [smsNotifications, setSmsNotifications] = useState(false);
 
-  // Mock organization profile data - in real app this would come from API
+  // Organization profile data - using real data from user context with fallbacks
   const [profileData, setProfileData] = useState({
-    organizationName: user?.organizationName || 'Acme Corporation',
-    contactPerson: 'Jane Smith',
+    organizationName: user?.organizationName || 'Your Organization',
+    contactPerson: user?.username || 'Contact Person',
     title: 'Training Coordinator',
-    email: user?.email || 'jane.smith@acme.com',
-    phone: '+1 (555) 987-6543',
+    email: user?.email || 'contact@organization.com',
+    phone: '+1 (555) 000-0000',
     address: '123 Business Ave, Suite 100',
-    city: 'New York',
-    state: 'NY',
-    zipCode: '10001',
-    website: 'www.acme.com',
+    city: 'Your City',
+    state: 'State',
+    zipCode: '00000',
+    website: 'www.yourorganization.com',
     industry: 'Healthcare',
-    employeeCount: '500-1000',
-    joinDate: '2022-08-15',
-    totalCourses: 28,
-    totalStudents: 450,
-    activeInstructors: 12
+    employeeCount: '1-50',
+    joinDate: '2024-01-01',
+    totalCourses: 0,
+    totalStudents: 0,
+    activeInstructors: 0
   });
 
   const [editData, setEditData] = useState(profileData);
+
+  // Update profile data when user data changes
+  useEffect(() => {
+    if (user) {
+      setProfileData(prevData => ({
+        ...prevData,
+        organizationName: user.organizationName || prevData.organizationName,
+        contactPerson: user.username || prevData.contactPerson,
+        email: user.email || prevData.email
+      }));
+    }
+  }, [user]);
 
   const handleEdit = () => {
     setIsEditing(true);
@@ -110,9 +122,17 @@ const OrganizationProfile = ({ showSnackbar }) => {
         Organization Profile
       </Typography>
       
-      <Typography variant="body1" color="text.secondary" sx={{ mb: 3 }}>
+      <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
         Manage your organization information, contact details, and notification preferences.
       </Typography>
+
+      {user?.organizationName && (
+        <Alert severity="info" sx={{ mb: 3 }}>
+          <Typography variant="body2">
+            <strong>Organization:</strong> {user.organizationName} - This organization is automatically associated with your user account.
+          </Typography>
+        </Alert>
+      )}
 
       <Grid container spacing={3}>
         {/* Organization Overview Card */}
@@ -224,6 +244,8 @@ const OrganizationProfile = ({ showSnackbar }) => {
                       label="Organization Name"
                       value={editData.organizationName}
                       onChange={(e) => setEditData({ ...editData, organizationName: e.target.value })}
+                      disabled
+                      helperText="Organization name is linked to your user account and cannot be changed here"
                     />
                   </Grid>
                   <Grid item xs={6}>

@@ -239,7 +239,7 @@ const OrganizationPortal = () => {
                         🏢 Organization Portal
                     </Typography>
                     <Typography variant="body1" noWrap sx={{ mr: 2 }}>
-                         Welcome {user?.username || user?.organizationName || 'Organization User'}!
+                         Welcome {user?.organizationName || user?.username || 'Organization User'}!
                     </Typography>
                 </Toolbar>
             </AppBar>

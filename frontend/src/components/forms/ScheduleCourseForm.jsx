@@ -104,10 +104,10 @@ const ScheduleCourseForm = ({ onCourseScheduled }) => {
         }
     };
 
-    // Render loading state if user or organization name is not yet available
+    // Render loading state if user is not yet available
     logger.debug('[ScheduleCourseForm] Checking user object before rendering:', user);
-    if (!user || !user.organizationName) {
-        logger.debug(`[ScheduleCourseForm] Condition failed: !user is ${!user}, !user.organizationName is ${!user?.organizationName}. Showing loading spinner.`);
+    if (!user) {
+        logger.debug(`[ScheduleCourseForm] User not loaded yet. Showing loading spinner.`);
         return (
             <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', p: 3 }}>
                 <CircularProgress size={24} sx={{ mr: 1 }} />
@@ -115,6 +115,9 @@ const ScheduleCourseForm = ({ onCourseScheduled }) => {
             </Box>
         );
     }
+
+    // Get organization name - fallback to username if organizationName not available
+    const organizationDisplayName = user.organizationName || `Organization (${user.username})`;
 
     return (
         <Paper elevation={3} sx={{ p: { xs: 2, sm: 3 } }}>
@@ -131,11 +134,12 @@ const ScheduleCourseForm = ({ onCourseScheduled }) => {
                     <Grid item xs={12}> 
                         <TextField 
                             label="Organization"
-                            value={user.organizationName}
+                            value={organizationDisplayName}
                             fullWidth 
                             disabled
                             variant="filled" 
                             InputProps={{ readOnly: true }}
+                            helperText="This organization is automatically assigned based on your account"
                         />
                     </Grid>
                     {/* Date Requested */}
