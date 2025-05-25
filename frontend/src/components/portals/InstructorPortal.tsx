@@ -17,6 +17,7 @@ import InstructorLayout from './InstructorLayout';
 import AvailabilityView from '../views/instructor/AvailabilityView';
 
 // Lazy load components for better performance (using TypeScript files)
+const InstructorDashboard = lazy(() => import('../views/instructor/InstructorDashboard.tsx'));
 const MyClassesView = lazy(() => import('../views/instructor/MyClassesView.tsx'));
 const AttendanceView = lazy(() => import('../views/instructor/AttendanceView.jsx'));
 const InstructorArchiveTable = lazy(() => import('../tables/InstructorArchiveTable.tsx'));
@@ -26,31 +27,6 @@ const LoadingFallback = () => (
   <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
     <CircularProgress />
   </Box>
-);
-
-// Temporary Dashboard component
-const InstructorDashboard: React.FC<any> = ({ scheduledClasses, availableDates }) => (
-  <Container maxWidth="lg">
-    <Typography variant="h4" gutterBottom>Instructor Dashboard</Typography>
-    <Grid container spacing={3}>
-      <Grid item xs={12} md={6}>
-        <Card>
-          <CardContent>
-            <Typography variant="h6">Scheduled Classes</Typography>
-            <Typography variant="h3">{scheduledClasses.length}</Typography>
-          </CardContent>
-        </Card>
-      </Grid>
-      <Grid item xs={12} md={6}>
-        <Card>
-          <CardContent>
-            <Typography variant="h6">Available Days</Typography>
-            <Typography variant="h3">{availableDates.size}</Typography>
-          </CardContent>
-        </Card>
-      </Grid>
-    </Grid>
-  </Container>
 );
 
 const InstructorPortal: React.FC = () => {
