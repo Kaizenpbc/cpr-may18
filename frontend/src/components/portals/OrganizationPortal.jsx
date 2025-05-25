@@ -25,12 +25,14 @@ import {
     Logout as LogoutIcon,
     VpnKey as PasswordIcon,
     School as ClassManagementIcon,
-    Groups as StudentsIcon
+    Groups as StudentsIcon,
+    Person as ProfileIcon
 } from '@mui/icons-material';
 import ScheduleCourseForm from '../forms/ScheduleCourseForm';
 import OrganizationCoursesTable from '../tables/OrganizationCoursesTable';
 import StudentUploadDialog from '../dialogs/StudentUploadDialog';
 import ViewStudentsDialog from '../dialogs/ViewStudentsDialog';
+import OrganizationProfile from '../views/organization/OrganizationProfile';
 
 const drawerWidth = 240;
 
@@ -219,6 +221,10 @@ const OrganizationPortal = () => {
             );
         }
 
+        if (selectedView === 'profile') {
+            return <OrganizationProfile showSnackbar={showSnackbar} />;
+        }
+
         return null;
     };
 
@@ -317,6 +323,28 @@ const OrganizationPortal = () => {
                                 <ClassManagementIcon />
                             </ListItemIcon>
                             <ListItemText primary="Class Management" />
+                        </ListItem>
+                        <ListItem 
+                            component="div" 
+                            selected={selectedView === 'profile'}
+                            onClick={() => setSelectedView('profile')}
+                            sx={{
+                                cursor: 'pointer', 
+                                py: 1.5, 
+                                backgroundColor: selectedView === 'profile' ? 'primary.light' : 'transparent',
+                                color: selectedView === 'profile' ? 'primary.contrastText' : 'inherit',
+                                '& .MuiListItemIcon-root': {
+                                    color: selectedView === 'profile' ? 'primary.contrastText' : 'inherit',
+                                },
+                                '&:hover': {
+                                    backgroundColor: selectedView === 'profile' ? 'primary.main' : 'action.hover',
+                                }
+                            }}
+                        >
+                            <ListItemIcon>
+                                <ProfileIcon />
+                            </ListItemIcon>
+                            <ListItemText primary="Profile" />
                         </ListItem>
                         <Divider />
                         <ListItem 
