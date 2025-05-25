@@ -20,6 +20,7 @@ import {
   Class as ClassIcon,
   AssignmentTurnedIn as AttendanceIcon,
   Archive as ArchiveIcon,
+  Person as ProfileIcon,
   VpnKey as PasswordIcon,
   Logout as LogoutIcon,
   Refresh as RefreshIcon
@@ -54,7 +55,8 @@ const InstructorLayout: React.FC<InstructorLayoutProps> = ({
     { id: 'availability', label: 'Schedule Availability', icon: <CalendarIcon />, path: '/instructor/availability' },
     { id: 'classes', label: 'My Classes', icon: <ClassIcon />, path: '/instructor/classes' },
     { id: 'attendance', label: 'Attendance', icon: <AttendanceIcon />, path: '/instructor/attendance' },
-    { id: 'archive', label: 'Archive', icon: <ArchiveIcon />, path: '/instructor/archive' }
+    { id: 'archive', label: 'Archive', icon: <ArchiveIcon />, path: '/instructor/archive' },
+    { id: 'profile', label: 'Profile', icon: <ProfileIcon />, path: '/instructor/profile' }
   ];
 
   const handleNavigation = (path: string) => {

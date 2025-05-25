@@ -17,6 +17,7 @@ import InstructorLayout from './InstructorLayout';
 import AvailabilityView from '../views/instructor/AvailabilityView';
 import ErrorBoundary from '../common/ErrorBoundary';
 import ToastDemo from '../common/ToastDemo';
+import InstructorProfile from '../views/instructor/InstructorProfile';
 import analytics from '../../services/analytics';
 
 // Lazy load components for better performance (using TypeScript files)
@@ -258,6 +259,14 @@ const InstructorPortal: React.FC = () => {
                 element={
                   <ErrorBoundary onError={handleError}>
                     <ToastDemo />
+                  </ErrorBoundary>
+                } 
+              />
+              <Route 
+                path="/profile" 
+                element={
+                  <ErrorBoundary onError={handleError}>
+                    <InstructorProfile />
                   </ErrorBoundary>
                 } 
               />
