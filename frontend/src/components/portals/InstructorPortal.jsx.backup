@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, Suspense, lazy } from 'react';
-import { Routes, Route, useNavigate, useLocation } from 'react-router-dom';
+import { Routes, Route, useParams, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import api from '../../services/api.ts';
 import {
@@ -33,7 +33,14 @@ import {
     IconButton,
     Tooltip,
     Tabs,
-    Tab
+    Tab,
+    TextField,
+    Chip,
+    FormControl,
+    InputLabel,
+    Select,
+    MenuItem,
+    DialogContentText
 } from '@mui/material';
 import {
     CalendarToday as CalendarIcon,
@@ -50,7 +57,7 @@ import {
 } from '@mui/icons-material';
 import { formatDate, formatDisplayDate } from '../../utils/formatters';
 import ConfirmDialog from '../dialogs/ConfirmDialog';
-import AvailabilityView from '../views/instructor/AvailabilityView';
+import AvailabilityView from '../views/instructor/AvailabilityView.tsx';
 import ScheduledClassesView from '../views/ScheduledClassesView';
 import CourseHistoryView from '../../components/views/CourseHistoryView';
 import InstructorPortalHeader from '../../components/headers/InstructorPortalHeader';
@@ -299,13 +306,17 @@ const InstructorPortal = () => {
         // Load data specific to the selected view
         if (currentView === 'archive') {
             fetchArchivedCourses();
-        } else if (currentView === 'attendance') {
-            if (scheduledClasses.length === 1) {
-                logger.debug('[useEffect View Change] Auto-selecting the only scheduled class for attendance.');
-                setClassToManage(scheduledClasses[0]);
-            }
         }
-    }, [location.pathname, fetchArchivedCourses, scheduledClasses]);
+    }, [location.pathname, fetchArchivedCourses]);
+
+    // Separate effect for auto-selecting single class in attendance view
+    useEffect(() => {
+        const currentView = getCurrentView();
+        if (currentView === 'attendance' && scheduledClasses.length === 1 && !classToManage) {
+            logger.debug('[useEffect Attendance] Auto-selecting the only scheduled class for attendance.');
+            setClassToManage(scheduledClasses[0]);
+        }
+    }, [location.pathname]);
 
     useEffect(() => {
         if (classToManage) {
@@ -580,8 +591,6 @@ const InstructorPortal = () => {
     // Get current view for highlighting navigation
     const currentView = getCurrentView();
 
-    logger.debug('[InstructorPortal Render] Snackbar state:', snackbar);
-
     return (
         <>
             <Box sx={{ display: 'flex' }}>
@@ -797,10 +806,6 @@ const InstructorPortal = () => {
                                                 availableDates={Array.from(availableDates)}
                                                 scheduledClasses={scheduledClasses}
                                                 ontarioHolidays2024={[]}
-                                                handleDateClick={handleDateClick}
-                                                currentDate={currentDate}
-                                                handlePreviousMonth={handlePreviousMonth}
-                                                handleNextMonth={handleNextMonth}
                                             />
                                         } />
                                         <Route path="/classes" element={

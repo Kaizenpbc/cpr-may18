@@ -15,7 +15,8 @@ import {
     DialogTitle,
     DialogContent,
     DialogContentText,
-    DialogActions
+    DialogActions,
+    Snackbar
 } from '@mui/material';
 import {
     Event as EventIcon,
@@ -33,9 +34,12 @@ import api from '../../../api/index';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 
-interface Props {
-    availableDates?: string[];
-    scheduledClasses?: Class[];
+interface AvailabilityViewProps {
+    availableDates: string[];
+    scheduledClasses: any[];
+    onAddAvailability?: (date: string) => Promise<{ success: boolean; error?: string }>;
+    onRemoveAvailability?: (date: string) => Promise<{ success: boolean; error?: string }>;
+    onRefresh?: () => void;
     ontarioHolidays2024?: string[];
 }
 
@@ -46,19 +50,21 @@ interface ConfirmationState {
     isAvailable: boolean;
 }
 
-const AvailabilityView: React.FC<Props> = ({
+const AvailabilityView: React.FC<AvailabilityViewProps> = ({
     availableDates: propAvailableDates,
     scheduledClasses: propScheduledClasses,
+    onAddAvailability,
+    onRemoveAvailability,
+    onRefresh,
     ontarioHolidays2024
 }) => {
     const { isAuthenticated, logout } = useAuth();
     const navigate = useNavigate();
     const theme = useTheme();
     const [currentDate, setCurrentDate] = useState<Date>(new Date());
-    const [availableDates, setAvailableDates] = useState<string[]>(propAvailableDates || []);
-    const [scheduledClasses, setScheduledClasses] = useState<Class[]>(propScheduledClasses || []);
+    const [scheduledClasses, setScheduledClasses] = useState<any[]>(propScheduledClasses || []);
     const [holidays, setHolidays] = useState<string[]>(ontarioHolidays2024 || []);
-    const [loading, setLoading] = useState<boolean>(true);
+    const [loading, setLoading] = useState<boolean>(false);
     const [error, setError] = useState<string | null>(null);
     const [confirmation, setConfirmation] = useState<ConfirmationState>({
         open: false,
@@ -66,46 +72,20 @@ const AvailabilityView: React.FC<Props> = ({
         action: 'add',
         isAvailable: false
     });
+    const [successMessage, setSuccessMessage] = useState<string>('');
+
+    const availableDates = propAvailableDates || [];
 
     useEffect(() => {
         if (!isAuthenticated) {
             navigate('/login');
             return;
         }
-
-        if (!propAvailableDates) {
-            loadData();
-        } else {
-            setLoading(false);
-        }
     }, [isAuthenticated]);
 
     const handleUnauthorized = async () => {
         await logout();
         navigate('/login');
-    };
-
-    const loadData = async () => {
-        try {
-            setLoading(true);
-            const [availabilityRes, classesRes] = await Promise.all([
-                api.get<ApiResponse<Availability[]>>('/api/v1/instructor/availability'),
-                api.get<ApiResponse<Class[]>>('/api/v1/instructor/classes')
-            ]);
-            
-            setAvailableDates(availabilityRes.data.data.map(a => a.date));
-            setScheduledClasses(classesRes.data.data);
-            setError(null);
-        } catch (err: any) {
-            if (err.response?.status === 401) {
-                handleUnauthorized();
-                return;
-            }
-            setError('Failed to load calendar data');
-            console.error('Error loading calendar data:', err);
-        } finally {
-            setLoading(false);
-        }
     };
 
     const handleDateClick = async (date: Date | null) => {
@@ -141,20 +121,32 @@ const AvailabilityView: React.FC<Props> = ({
             
             if (isAvailable) {
                 console.log('[AvailabilityView] Removing availability for:', dateStr);
-                await api.delete(`/api/v1/instructor/availability/${dateStr}`);
-                setAvailableDates(prev => {
-                    const newDates = prev.filter(d => d !== dateStr);
-                    console.log('[AvailabilityView] Updated available dates after removal:', newDates);
-                    return newDates;
-                });
+                
+                if (onRemoveAvailability) {
+                    const result = await onRemoveAvailability(dateStr);
+                    if (!result.success) {
+                        throw new Error(result.error || 'Failed to remove availability');
+                    }
+                } else {
+                    await api.delete(`/api/v1/instructor/availability/${dateStr}`);
+                }
+                
+                console.log('[AvailabilityView] Updated available dates after removal:', availableDates.filter(d => d !== dateStr));
+                setSuccessMessage(`Removed availability for ${dateStr}`);
             } else {
                 console.log('[AvailabilityView] Adding availability for:', dateStr);
-                await api.post('/api/v1/instructor/availability', { date: dateStr });
-                setAvailableDates(prev => {
-                    const newDates = [...prev, dateStr];
-                    console.log('[AvailabilityView] Updated available dates after addition:', newDates);
-                    return newDates;
-                });
+                
+                if (onAddAvailability) {
+                    const result = await onAddAvailability(dateStr);
+                    if (!result.success) {
+                        throw new Error(result.error || 'Failed to add availability');
+                    }
+                } else {
+                    await api.post('/api/v1/instructor/availability', { date: dateStr });
+                }
+                
+                console.log('[AvailabilityView] Updated available dates after addition:', [...availableDates, dateStr]);
+                setSuccessMessage(`Added availability for ${dateStr}`);
             }
             
             setError(null);
@@ -194,7 +186,7 @@ const AvailabilityView: React.FC<Props> = ({
             hoverColor = theme.palette.primary.dark;
             textColor = 'white';
             const classInfo = scheduledClasses.find(c => (c.date || c.datescheduled) === dateStr);
-            tooltipTitle = `Scheduled: ${classInfo?.organization || 'Class'}`;
+            tooltipTitle = `Scheduled: ${classInfo?.organizationname || 'Class'}`;
         } else if (isAvailable) {
             // Green = Available
             backgroundColor = theme.palette.success.main;
@@ -381,6 +373,18 @@ const AvailabilityView: React.FC<Props> = ({
                     </Button>
                 </DialogActions>
             </Dialog>
+            
+            {/* Success Snackbar */}
+            <Snackbar
+                open={!!successMessage}
+                autoHideDuration={3000}
+                onClose={() => setSuccessMessage('')}
+                anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
+            >
+                <Alert onClose={() => setSuccessMessage('')} severity="success" sx={{ width: '100%' }}>
+                    {successMessage}
+                </Alert>
+            </Snackbar>
         </Container>
     );
 };
