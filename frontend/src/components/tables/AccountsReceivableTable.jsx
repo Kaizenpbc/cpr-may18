@@ -20,8 +20,7 @@ import {
 } from '@mui/material';
 import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown'; // Expand icon
 import KeyboardArrowUpIcon from '@mui/icons-material/KeyboardArrowUp'; // Collapse icon
-import * as api from '../../services/api'; // Import API service
-import { visuallyHidden } from '@mui/utils';
+import * as api from '../../services/api.ts'; // Import API service
 import logger from '../../utils/logger';
 // Add necessary icons
 import VisibilityIcon from '@mui/icons-material/Visibility';

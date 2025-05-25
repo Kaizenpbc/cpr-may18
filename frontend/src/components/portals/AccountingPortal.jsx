@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import * as api from '../../services/api';
+import * as api from '../../services/api.ts';
 import logger from '../../utils/logger';
 import {
     Box,
@@ -26,6 +26,12 @@ import {
     History as HistoryIcon, // Add History icon
     Assessment as ReportsIcon, // Add Reports icon
     Logout as LogoutIcon,
+    EditCalendar as ScheduleIcon,
+    ListAlt as ListIcon,
+    VpnKey as PasswordIcon,
+    School as ClassManagementIcon,
+    Groups as StudentsIcon,
+    AttachMoney as PricingIcon
 } from '@mui/icons-material';
 import ReadyForBillingTable from '../tables/ReadyForBillingTable'; // Import the table
 import AccountsReceivableTable from '../tables/AccountsReceivableTable'; // Import AR table
@@ -35,6 +41,7 @@ import InvoiceDetailDialog from '../dialogs/InvoiceDetailDialog'; // Import Invo
 import RecordPaymentDialog from '../dialogs/RecordPaymentDialog'; // Import Record Payment Dialog
 import TransactionHistoryView from '../../components/views/TransactionHistoryView';
 import ReportsView from '../../components/views/ReportsView';
+import CoursePricingSetup from '../accounting/CoursePricingSetup'; // Add this import
 
 const drawerWidth = 240;
 
@@ -235,6 +242,9 @@ const AccountingPortal = () => {
                         onEmailInvoiceClick={handleEmailInvoiceClick} 
                     />
                 );
+            case 'pricing': 
+                logger.debug('[renderSelectedView: pricing]');
+                return <CoursePricingSetup />;
             case 'history': 
                 logger.debug('[renderSelectedView: history]');
                 return <TransactionHistoryView />;
@@ -362,6 +372,27 @@ const AccountingPortal = () => {
                         >
                             <ListItemIcon sx={{ color: 'inherit' }}><ReportsIcon /></ListItemIcon>
                             <ListItemText primary="Reports" />
+                        </ListItem>
+                        {/* Course Pricing Setup Item - NEW */}
+                        <ListItem 
+                            component="div"
+                            selected={selectedView === 'pricing'}
+                            onClick={() => setSelectedView('pricing')}
+                             sx={{ // Apply styling 
+                                cursor: 'pointer', 
+                                py: 1.5, 
+                                backgroundColor: selectedView === 'pricing' ? 'primary.light' : 'transparent',
+                                color: selectedView === 'pricing' ? 'primary.contrastText' : 'inherit',
+                                '& .MuiListItemIcon-root': {
+                                    color: selectedView === 'pricing' ? 'primary.contrastText' : 'inherit',
+                                },
+                                '&:hover': {
+                                    backgroundColor: selectedView === 'pricing' ? 'primary.main' : 'action.hover',
+                                }
+                            }}
+                        >
+                            <ListItemIcon sx={{ color: 'inherit' }}><PricingIcon /></ListItemIcon>
+                            <ListItemText primary="Course Pricing Setup" />
                         </ListItem>
                         <Divider sx={{ my: 1 }} />
                          {/* Logout Item - Apply Styles */}

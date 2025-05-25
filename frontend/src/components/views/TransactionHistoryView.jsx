@@ -15,7 +15,7 @@ import {
     InputLabel,
     // Add other filter controls as needed (Select, DatePickers etc.)
 } from '@mui/material';
-import * as api from '../../services/api'; // Adjust path
+import * as api from '../../services/api.ts'; // Adjust path
 // Import the dedicated history table component
 import InvoiceHistoryTable from '../tables/InvoiceHistoryTable';
 

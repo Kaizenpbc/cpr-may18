@@ -10,7 +10,7 @@ import {
   Alert,
   CircularProgress,
 } from '@mui/material';
-import * as api from '../services/api.ts';
+import * as api from '../services/api';
 
 const PasswordReset = () => {
   const navigate = useNavigate();

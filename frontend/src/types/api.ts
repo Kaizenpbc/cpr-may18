@@ -4,7 +4,7 @@ export interface User {
     email: string;
     full_name?: string;
     first_name?: string;
-    role: 'instructor' | 'admin' | 'organization' | 'superadmin' | 'student';
+    role: 'instructor' | 'admin' | 'organization' | 'superadmin' | 'student' | 'accountant' | 'sysadmin';
     organizationId?: number;
     organizationName?: string;
 }

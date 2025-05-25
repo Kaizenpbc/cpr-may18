@@ -11,7 +11,7 @@ import {
     Person as PersonIcon,
     Schedule as ScheduleIcon
 } from '@mui/icons-material';
-import { api } from '../../../services/api';
+import api from '../../../services/api.ts';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 

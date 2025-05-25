@@ -1,4 +1,4 @@
-import { api } from './api';
+import api from './api.ts';
 
 export const getInvoicePayments = async (invoiceId) => {
     return api.getInvoicePayments(invoiceId);

@@ -10,6 +10,8 @@ import InstructorPortal from './components/portals/InstructorPortal';
 import OrganizationPortal from './components/portals/OrganizationPortal';
 import CourseAdminPortal from './components/portals/CourseAdminPortal';
 import SuperAdminPortal from './components/portals/SuperAdminPortal';
+import AccountingPortal from './components/portals/AccountingPortal';
+import SystemAdminPortal from './components/portals/SystemAdminPortal';
 import { AuthProvider } from './contexts/AuthContext';
 import { ErrorBoundary } from './components/ErrorBoundary';
 
@@ -55,9 +57,21 @@ function App() {
               </PrivateRoute>
             } />
             
+            <Route path="/accounting/*" element={
+              <PrivateRoute requiredRole="accountant">
+                <AccountingPortal />
+              </PrivateRoute>
+            } />
+            
             <Route path="/superadmin/*" element={
               <PrivateRoute requiredRole="superadmin">
                 <SuperAdminPortal />
+              </PrivateRoute>
+            } />
+
+            <Route path="/sysadmin/*" element={
+              <PrivateRoute requiredRole="sysadmin">
+                <SystemAdminPortal />
               </PrivateRoute>
             } />
 

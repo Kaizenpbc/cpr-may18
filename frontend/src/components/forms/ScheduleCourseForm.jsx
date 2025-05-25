@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Box, TextField, Button, Select, MenuItem, FormControl, InputLabel, CircularProgress, Typography, Alert, Grid, Paper } from '@mui/material';
-import * as api from '../../services/api';
+import * as api from '../../services/api.ts';
 import { useAuth } from '../../contexts/AuthContext';
 import logger from '../../utils/logger';
 

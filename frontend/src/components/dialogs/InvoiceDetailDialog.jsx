@@ -13,7 +13,7 @@ import {
     Divider,
     TextField
 } from '@mui/material';
-import * as api from '../../services/api'; // Adjust path as needed
+import * as api from '../../services/api.ts'; // Adjust path as needed
 import EmailIcon from '@mui/icons-material/Email';
 import logger from '../../utils/logger';
 import { getInvoiceDetails } from '../../services/invoiceService';

@@ -6,6 +6,8 @@ import InstructorPortal from './portals/InstructorPortal';
 import OrganizationPortal from './portals/OrganizationPortal';
 import CourseAdminPortal from './portals/CourseAdminPortal';
 import SuperAdminPortal from './portals/SuperAdminPortal';
+import AccountingPortal from './portals/AccountingPortal';
+import SystemAdminPortal from './portals/SystemAdminPortal';
 
 const RoleBasedRouter: React.FC = () => {
   const { user, loading } = useAuth();
@@ -18,7 +20,9 @@ const RoleBasedRouter: React.FC = () => {
         instructor: '/instructor',
         organization: '/organization', 
         admin: '/admin',
-        superadmin: '/superadmin'
+        accountant: '/accounting',
+        superadmin: '/superadmin',
+        sysadmin: '/sysadmin'
       };
 
       const targetRoute = roleRoutes[user.role as keyof typeof roleRoutes];
@@ -38,9 +42,11 @@ const RoleBasedRouter: React.FC = () => {
   }
 
   if (!user) {
+    // Redirect to login page instead of just showing a message
+    navigate('/login');
     return (
       <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">
-        <Typography variant="h6">Please log in to access the portal</Typography>
+        <CircularProgress />
       </Box>
     );
   }
@@ -54,8 +60,12 @@ const RoleBasedRouter: React.FC = () => {
       return <OrganizationPortal />;
     case 'admin':
       return <CourseAdminPortal />;
+    case 'accountant':
+      return <AccountingPortal />;
     case 'superadmin':
       return <SuperAdminPortal />;
+    case 'sysadmin':
+      return <SystemAdminPortal />;
     default:
       return (
         <Box display="flex" justifyContent="center" alignItems="center" minHeight="60vh">

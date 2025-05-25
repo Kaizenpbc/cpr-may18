@@ -293,6 +293,81 @@ const initializeDatabase = async () => {
       ON CONFLICT (username) DO NOTHING;
     `, [orgPasswordHash]);
 
+    // Create default accountant user if it doesn't exist
+    const accountantPassword = 'test123';
+    const accountantPasswordHash = await bcrypt.hash(accountantPassword, 10);
+    
+    await pool.query(`
+      INSERT INTO users (username, email, password_hash, role)
+      VALUES ('accountant', 'accountant@cpr.com', $1, 'accountant')
+      ON CONFLICT (username) DO NOTHING;
+    `, [accountantPasswordHash]);
+
+    // Create course_pricing table for organization-specific pricing
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS course_pricing (
+        id SERIAL PRIMARY KEY,
+        organization_id INTEGER NOT NULL REFERENCES organizations(id),
+        course_type_id INTEGER NOT NULL REFERENCES class_types(id),
+        price_per_student DECIMAL(10,2) NOT NULL,
+        effective_date DATE NOT NULL DEFAULT CURRENT_DATE,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(organization_id, course_type_id, effective_date)
+      );
+    `);
+
+    // Create invoices table for billing tracking
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS invoices (
+        id SERIAL PRIMARY KEY,
+        invoice_number VARCHAR(50) UNIQUE NOT NULL,
+        organization_id INTEGER NOT NULL REFERENCES organizations(id),
+        course_request_id INTEGER NOT NULL REFERENCES course_requests(id),
+        amount DECIMAL(10,2) NOT NULL,
+        students_billed INTEGER NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        due_date DATE NOT NULL,
+        paid_date DATE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Create payments table for payment tracking
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS payments (
+        id SERIAL PRIMARY KEY,
+        invoice_id INTEGER NOT NULL REFERENCES invoices(id),
+        amount DECIMAL(10,2) NOT NULL,
+        payment_method VARCHAR(50) NOT NULL,
+        payment_date DATE NOT NULL,
+        reference_number VARCHAR(100),
+        notes TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Insert default course pricing if none exists
+    await pool.query(`
+      INSERT INTO course_pricing (organization_id, course_type_id, price_per_student)
+      SELECT o.id, ct.id, 
+        CASE 
+          WHEN ct.name = 'Basic CPR' THEN 50.00
+          WHEN ct.name = 'Advanced CPR' THEN 75.00
+          WHEN ct.name = 'First Aid' THEN 45.00
+          WHEN ct.name = 'BLS' THEN 85.00
+          ELSE 60.00
+        END as price
+      FROM organizations o
+      CROSS JOIN class_types ct
+      WHERE NOT EXISTS (
+        SELECT 1 FROM course_pricing cp 
+        WHERE cp.organization_id = o.id AND cp.course_type_id = ct.id
+      );
+    `);
+
     // Add completed_at column to course_requests table if it doesn't exist
     await pool.query(`
       DO $$ 

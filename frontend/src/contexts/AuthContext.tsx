@@ -30,14 +30,25 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const [loading, setLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [socket, setSocket] = useState<any>(null);
+  const [isChecking, setIsChecking] = useState(false);
   
   const location = useLocation();
   const navigate = useNavigate();
 
   const checkAuth = async () => {
+    // Prevent multiple concurrent auth checks
+    if (isChecking) {
+      console.log('[Debug] AuthContext - Auth check already in progress, skipping');
+      return;
+    }
+
     try {
+      setIsChecking(true);
+      
       // Save current location (except for auth pages)
-      tokenService.saveCurrentLocation(location.pathname);
+      if (typeof tokenService.saveCurrentLocation === 'function') {
+        tokenService.saveCurrentLocation(location.pathname);
+      }
       
       // Check if we have a token
       const token = tokenService.getAccessToken();
@@ -77,12 +88,25 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
       setSocket(null);
     } finally {
       setLoading(false);
+      setIsChecking(false);
     }
   };
 
   useEffect(() => {
-    checkAuth();
-  }, []);
+    let isMounted = true;
+    
+    const performAuthCheck = async () => {
+      if (isMounted) {
+        await checkAuth();
+      }
+    };
+    
+    performAuthCheck();
+    
+    return () => {
+      isMounted = false;
+    };
+  }, []); // Only run once on mount
 
   const login = async (username: string, password: string) => {
     try {
@@ -106,10 +130,14 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
         setIsAuthenticated(true);
         
         // Check for saved location and redirect appropriately
-        const savedLocation = tokenService.getSavedLocation();
+        const savedLocation = typeof tokenService.getSavedLocation === 'function' 
+          ? tokenService.getSavedLocation() 
+          : null;
         if (savedLocation && savedLocation !== '/login') {
           console.log('[Debug] AuthContext - Redirecting to saved location:', savedLocation);
-          tokenService.clearSavedLocation();
+          if (typeof tokenService.clearSavedLocation === 'function') {
+            tokenService.clearSavedLocation();
+          }
           navigate(savedLocation, { replace: true });
         } else {
           // Navigate to role-appropriate dashboard
@@ -133,7 +161,9 @@ export const AuthProvider = ({ children }: { children: React.ReactNode }) => {
   const logout = async () => {
     try {
       // Save current location before logout (optional - for "return to page after login")
-      tokenService.saveCurrentLocation(location.pathname);
+      if (typeof tokenService.saveCurrentLocation === 'function') {
+        tokenService.saveCurrentLocation(location.pathname);
+      }
       
       await authService.logout();
       tokenService.clearTokens();

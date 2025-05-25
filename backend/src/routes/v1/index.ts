@@ -1077,4 +1077,1194 @@ router.get('/admin/logs', asyncHandler(async (req: Request, res: Response) => {
   });
 }));
 
+// Accounting Portal Endpoints
+
+// Get accounting dashboard data
+router.get('/accounting/dashboard', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    // Monthly Revenue
+    const monthlyRevenue = await pool.query(`
+      SELECT COALESCE(SUM(p.amount), 0) as total_revenue
+      FROM payments p
+      WHERE EXTRACT(MONTH FROM p.payment_date) = EXTRACT(MONTH FROM CURRENT_DATE)
+      AND EXTRACT(YEAR FROM p.payment_date) = EXTRACT(YEAR FROM CURRENT_DATE)
+    `);
+
+    // Outstanding Invoices
+    const outstandingInvoices = await pool.query(`
+      SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total_amount
+      FROM invoices
+      WHERE status = 'pending'
+    `);
+
+    // Payments This Month
+    const paymentsThisMonth = await pool.query(`
+      SELECT COUNT(*) as count, COALESCE(SUM(amount), 0) as total_amount
+      FROM payments
+      WHERE EXTRACT(MONTH FROM payment_date) = EXTRACT(MONTH FROM CURRENT_DATE)
+      AND EXTRACT(YEAR FROM payment_date) = EXTRACT(YEAR FROM CURRENT_DATE)
+    `);
+
+    // Completed Courses This Month (for instructor payments)
+    const completedCoursesThisMonth = await pool.query(`
+      SELECT COUNT(*) as completed_courses
+      FROM course_requests
+      WHERE status = 'completed'
+      AND EXTRACT(MONTH FROM completed_at) = EXTRACT(MONTH FROM CURRENT_DATE)
+      AND EXTRACT(YEAR FROM completed_at) = EXTRACT(YEAR FROM CURRENT_DATE)
+    `);
+
+    const dashboardData = {
+      monthlyRevenue: Number(monthlyRevenue.rows[0]?.total_revenue || 0),
+      outstandingInvoices: {
+        count: parseInt(outstandingInvoices.rows[0]?.count || 0),
+        amount: Number(outstandingInvoices.rows[0]?.total_amount || 0)
+      },
+      paymentsThisMonth: {
+        count: parseInt(paymentsThisMonth.rows[0]?.count || 0),
+        amount: Number(paymentsThisMonth.rows[0]?.total_amount || 0)
+      },
+      completedCoursesThisMonth: parseInt(completedCoursesThisMonth.rows[0]?.completed_courses || 0)
+    };
+
+    res.json({
+      success: true,
+      data: dashboardData
+    });
+  } catch (error) {
+    console.error('Error fetching accounting dashboard:', error);
+    throw error;
+  }
+}));
+
+// Get course pricing for all organizations
+router.get('/accounting/course-pricing', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        cp.id,
+        cp.organization_id,
+        cp.course_type_id,
+        cp.price_per_student,
+        cp.effective_date,
+        cp.is_active,
+        o.name as organization_name,
+        ct.name as course_type_name,
+        ct.description as course_description
+      FROM course_pricing cp
+      JOIN organizations o ON cp.organization_id = o.id
+      JOIN class_types ct ON cp.course_type_id = ct.id
+      WHERE cp.is_active = true
+      ORDER BY o.name, ct.name
+    `);
+
+    res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('Error fetching course pricing:', error);
+    throw error;
+  }
+}));
+
+// Update course pricing
+router.put('/accounting/course-pricing/:id', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { price_per_student } = req.body;
+
+    if (!price_per_student || price_per_student <= 0) {
+      throw new AppError(400, errorCodes.VALIDATION_ERROR, 'Valid price per student is required');
+    }
+
+    const result = await pool.query(`
+      UPDATE course_pricing 
+      SET price_per_student = $1, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $2 AND is_active = true
+      RETURNING *
+    `, [price_per_student, id]);
+
+    if (result.rows.length === 0) {
+      throw new AppError(404, errorCodes.RESOURCE_NOT_FOUND, 'Course pricing record not found');
+    }
+
+    res.json({
+      success: true,
+      message: 'Course pricing updated successfully',
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error updating course pricing:', error);
+    throw error;
+  }
+}));
+
+// Get organizations list for pricing setup
+router.get('/accounting/organizations', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const result = await pool.query(`
+      SELECT id, name, contact_email, contact_phone
+      FROM organizations
+      ORDER BY name
+    `);
+
+    res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('Error fetching organizations:', error);
+    throw error;
+  }
+}));
+
+// Get course types for pricing setup
+router.get('/accounting/course-types', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const result = await pool.query(`
+      SELECT id, name, description, duration_minutes
+      FROM class_types
+      ORDER BY name
+    `);
+
+    res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('Error fetching course types:', error);
+    throw error;
+  }
+}));
+
+// Create new course pricing
+router.post('/accounting/course-pricing', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const { organization_id, course_type_id, price_per_student } = req.body;
+
+    if (!organization_id || !course_type_id || !price_per_student || price_per_student <= 0) {
+      throw new AppError(400, errorCodes.VALIDATION_ERROR, 'All fields are required and price must be greater than 0');
+    }
+
+    // Check if pricing already exists for this combination
+    const existingResult = await pool.query(`
+      SELECT id FROM course_pricing
+      WHERE organization_id = $1 AND course_type_id = $2 AND is_active = true
+    `, [organization_id, course_type_id]);
+
+    if (existingResult.rows.length > 0) {
+      throw new AppError(400, errorCodes.VALIDATION_ERROR, 'Pricing already exists for this organization/course type combination');
+    }
+
+    const result = await pool.query(`
+      INSERT INTO course_pricing (organization_id, course_type_id, price_per_student, effective_date, is_active)
+      VALUES ($1, $2, $3, CURRENT_DATE, true)
+      RETURNING *
+    `, [organization_id, course_type_id, price_per_student]);
+
+    res.json({
+      success: true,
+      message: 'Course pricing created successfully',
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error creating course pricing:', error);
+    throw error;
+  }
+}));
+
+// Get billing queue (completed courses ready for invoicing)
+router.get('/accounting/billing-queue', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        cr.id as course_id,
+        cr.organization_id,
+        o.name as organization_name,
+        o.contact_email,
+        ct.name as course_type_name,
+        cr.location,
+        cr.completed_at::date as date_completed,
+        cr.registered_students,
+        (SELECT COUNT(*) FROM course_students cs WHERE cs.course_request_id = cr.id) as students_attended,
+        COALESCE(cp.price_per_student, 50.00) as rate_per_student,
+        (SELECT COUNT(*) FROM course_students cs WHERE cs.course_request_id = cr.id) * COALESCE(cp.price_per_student, 50.00) as total_amount,
+        u.username as instructor_name
+      FROM course_requests cr
+      JOIN organizations o ON cr.organization_id = o.id
+      JOIN class_types ct ON cr.course_type_id = ct.id
+      LEFT JOIN course_pricing cp ON cr.organization_id = cp.organization_id AND cr.course_type_id = cp.course_type_id AND cp.is_active = true
+      LEFT JOIN users u ON cr.instructor_id = u.id
+      WHERE cr.status = 'completed'
+      AND cr.id NOT IN (SELECT course_id FROM invoices WHERE course_id IS NOT NULL)
+      ORDER BY cr.completed_at DESC
+    `);
+
+    res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('Error fetching billing queue:', error);
+    throw error;
+  }
+}));
+
+// Create invoice from completed course
+router.post('/accounting/invoices', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const { courseId } = req.body;
+
+    if (!courseId) {
+      throw new AppError(400, errorCodes.VALIDATION_ERROR, 'Course ID is required');
+    }
+
+    const client = await pool.connect();
+    
+    try {
+      await client.query('BEGIN');
+
+      // Get course details
+      const courseResult = await client.query(`
+        SELECT 
+          cr.id,
+          cr.organization_id,
+          cr.completed_at,
+          cr.location,
+          o.name as organization_name,
+          o.contact_email,
+          ct.name as course_type_name,
+          (SELECT COUNT(*) FROM course_students cs WHERE cs.course_request_id = cr.id) as students_attended,
+          COALESCE(cp.price_per_student, 50.00) as rate_per_student
+        FROM course_requests cr
+        JOIN organizations o ON cr.organization_id = o.id
+        JOIN class_types ct ON cr.course_type_id = ct.id
+        LEFT JOIN course_pricing cp ON cr.organization_id = cp.organization_id AND cr.course_type_id = cp.course_type_id AND cp.is_active = true
+        WHERE cr.id = $1 AND cr.status = 'completed'
+      `, [courseId]);
+
+      if (courseResult.rows.length === 0) {
+        throw new AppError(404, errorCodes.RESOURCE_NOT_FOUND, 'Course not found or not completed');
+      }
+
+      const course = courseResult.rows[0];
+      const totalAmount = course.students_attended * course.rate_per_student;
+
+      // Generate invoice number
+      const invoiceNumber = `INV-${new Date().getFullYear()}-${String(Date.now()).slice(-6)}`;
+
+      // Create invoice
+      const invoiceResult = await client.query(`
+        INSERT INTO invoices (
+          invoice_number,
+          course_id,
+          organization_id,
+          invoice_date,
+          due_date,
+          amount,
+          status,
+          course_type_name,
+          location,
+          date_completed,
+          students_attendance,
+          rate_per_student
+        )
+        VALUES ($1, $2, $3, CURRENT_DATE, CURRENT_DATE + INTERVAL '30 days', $4, 'pending', $5, $6, $7, $8, $9)
+        RETURNING *
+      `, [
+        invoiceNumber,
+        courseId,
+        course.organization_id,
+        totalAmount,
+        course.course_type_name,
+        course.location,
+        course.completed_at,
+        course.students_attended,
+        course.rate_per_student
+      ]);
+
+      await client.query('COMMIT');
+
+      res.json({
+        success: true,
+        message: 'Invoice created successfully',
+        data: invoiceResult.rows[0]
+      });
+
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+
+  } catch (error) {
+    console.error('Error creating invoice:', error);
+    throw error;
+  }
+}));
+
+// Get all invoices
+router.get('/accounting/invoices', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        i.*,
+        o.name as organization_name,
+        o.contact_email,
+        COALESCE(SUM(p.amount), 0) as paid_to_date,
+        i.amount - COALESCE(SUM(p.amount), 0) as balance_due,
+        CASE 
+          WHEN i.amount - COALESCE(SUM(p.amount), 0) <= 0 THEN 'paid'
+          WHEN CURRENT_DATE > i.due_date THEN 'overdue'
+          ELSE 'pending'
+        END as payment_status,
+        CASE 
+          WHEN CURRENT_DATE <= i.due_date THEN 'current'
+          WHEN CURRENT_DATE <= i.due_date + INTERVAL '30 days' THEN '1-30 days'
+          WHEN CURRENT_DATE <= i.due_date + INTERVAL '60 days' THEN '31-60 days'
+          WHEN CURRENT_DATE <= i.due_date + INTERVAL '90 days' THEN '61-90 days'
+          ELSE '90+ days'
+        END as aging_bucket,
+        i.email_sent_at
+      FROM invoices i
+      JOIN organizations o ON i.organization_id = o.id
+      LEFT JOIN payments p ON i.id = p.invoice_id
+      GROUP BY i.id, o.name, o.contact_email
+      ORDER BY i.invoice_date DESC
+    `);
+
+    res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('Error fetching invoices:', error);
+    throw error;
+  }
+}));
+
+// Get specific invoice details
+router.get('/accounting/invoices/:id', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const result = await pool.query(`
+      SELECT 
+        i.*,
+        o.name as organization_name,
+        o.contact_email,
+        o.contact_name,
+        o.address_street,
+        o.address_city,
+        o.address_province,
+        o.address_postal_code
+      FROM invoices i
+      JOIN organizations o ON i.organization_id = o.id
+      WHERE i.id = $1
+    `, [id]);
+
+    if (result.rows.length === 0) {
+      throw new AppError(404, errorCodes.RESOURCE_NOT_FOUND, 'Invoice not found');
+    }
+
+    res.json({
+      success: true,
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error fetching invoice details:', error);
+    throw error;
+  }
+}));
+
+// Update invoice
+router.put('/accounting/invoices/:id', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { amount, due_date, status, notes } = req.body;
+
+    const result = await pool.query(`
+      UPDATE invoices 
+      SET amount = COALESCE($1, amount),
+          due_date = COALESCE($2, due_date),
+          status = COALESCE($3, status),
+          notes = COALESCE($4, notes),
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $5
+      RETURNING *
+    `, [amount, due_date, status, notes, id]);
+
+    if (result.rows.length === 0) {
+      throw new AppError(404, errorCodes.RESOURCE_NOT_FOUND, 'Invoice not found');
+    }
+
+    res.json({
+      success: true,
+      message: 'Invoice updated successfully',
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error updating invoice:', error);
+    throw error;
+  }
+}));
+
+// Send invoice email
+router.post('/accounting/invoices/:id/email', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    // Update email sent timestamp
+    await pool.query(`
+      UPDATE invoices 
+      SET email_sent_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+    `, [id]);
+
+    // Here you would integrate with your email service
+    // For now, we'll just simulate success
+    
+    res.json({
+      success: true,
+      message: 'Invoice email sent successfully',
+      previewUrl: `http://localhost:3001/api/v1/accounting/invoices/${id}/preview` // For testing
+    });
+  } catch (error) {
+    console.error('Error sending invoice email:', error);
+    throw error;
+  }
+}));
+
+// Get invoice payments
+router.get('/accounting/invoices/:id/payments', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const result = await pool.query(`
+      SELECT 
+        p.*,
+        p.amount as amount_paid,
+        p.payment_date as payment_date,
+        p.payment_method,
+        p.reference_number,
+        p.notes
+      FROM payments p
+      WHERE p.invoice_id = $1
+      ORDER BY p.payment_date DESC
+    `, [id]);
+
+    res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('Error fetching invoice payments:', error);
+    throw error;
+  }
+}));
+
+// Record payment for invoice
+router.post('/accounting/invoices/:id/payments', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const { amount_paid, payment_date, payment_method, reference_number, notes } = req.body;
+
+    if (!amount_paid || amount_paid <= 0) {
+      throw new AppError(400, errorCodes.VALIDATION_ERROR, 'Valid payment amount is required');
+    }
+
+    const client = await pool.connect();
+    
+    try {
+      await client.query('BEGIN');
+
+      // Record the payment
+      const paymentResult = await client.query(`
+        INSERT INTO payments (invoice_id, amount, payment_date, payment_method, reference_number, notes)
+        VALUES ($1, $2, $3, $4, $5, $6)
+        RETURNING *
+      `, [id, amount_paid, payment_date || new Date(), payment_method, reference_number, notes]);
+
+      // Update invoice status if fully paid
+      const invoiceResult = await client.query(`
+        SELECT amount, (SELECT COALESCE(SUM(amount), 0) FROM payments WHERE invoice_id = $1) as total_paid
+        FROM invoices WHERE id = $1
+      `, [id]);
+
+      const invoice = invoiceResult.rows[0];
+      if (invoice && invoice.total_paid >= invoice.amount) {
+        await client.query(`
+          UPDATE invoices SET status = 'paid' WHERE id = $1
+        `, [id]);
+      }
+
+      await client.query('COMMIT');
+
+      res.json({
+        success: true,
+        message: 'Payment recorded successfully',
+        data: paymentResult.rows[0]
+      });
+
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+
+  } catch (error) {
+    console.error('Error recording payment:', error);
+    throw error;
+  }
+}));
+
+// Revenue report endpoint
+router.get('/accounting/reports/revenue', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const { year } = req.query;
+
+    if (!year) {
+      throw new AppError(400, errorCodes.VALIDATION_ERROR, 'Year parameter is required');
+    }
+
+    const result = await pool.query(`
+      WITH monthly_data AS (
+        SELECT 
+          TO_CHAR(DATE_TRUNC('month', generate_series(
+            DATE_TRUNC('year', $1::date),
+            DATE_TRUNC('year', $1::date) + INTERVAL '11 months',
+            '1 month'
+          )), 'YYYY-MM') as month,
+          0 as default_value
+      ),
+      invoices_by_month AS (
+        SELECT 
+          TO_CHAR(DATE_TRUNC('month', invoice_date), 'YYYY-MM') as month,
+          COALESCE(SUM(amount), 0) as total_invoiced
+        FROM invoices
+        WHERE EXTRACT(YEAR FROM invoice_date) = EXTRACT(YEAR FROM $1::date)
+        GROUP BY TO_CHAR(DATE_TRUNC('month', invoice_date), 'YYYY-MM')
+      ),
+      payments_by_month AS (
+        SELECT 
+          TO_CHAR(DATE_TRUNC('month', payment_date), 'YYYY-MM') as month,
+          COALESCE(SUM(amount), 0) as total_paid_in_month
+        FROM payments
+        WHERE EXTRACT(YEAR FROM payment_date) = EXTRACT(YEAR FROM $1::date)
+        GROUP BY TO_CHAR(DATE_TRUNC('month', payment_date), 'YYYY-MM')
+      )
+      SELECT 
+        md.month,
+        COALESCE(ibm.total_invoiced, 0) as total_invoiced,
+        COALESCE(pbm.total_paid_in_month, 0) as total_paid_in_month,
+        0 as balance_brought_forward -- Simplified for now
+      FROM monthly_data md
+      LEFT JOIN invoices_by_month ibm ON md.month = ibm.month
+      LEFT JOIN payments_by_month pbm ON md.month = pbm.month
+      ORDER BY md.month
+    `, [year]);
+
+    res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('Error generating revenue report:', error);
+    throw error;
+  }
+}));
+
+// ===========================
+// SYSTEM ADMINISTRATION ENDPOINTS
+// ===========================
+
+// Course Definition Management
+router.get('/sysadmin/courses', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        id,
+        name,
+        description,
+        course_code,
+        duration_hours,
+        duration_minutes,
+        prerequisites,
+        certification_type,
+        validity_period_months,
+        course_category,
+        is_active,
+        regulatory_compliance,
+        created_at,
+        updated_at
+      FROM class_types
+      ORDER BY name
+    `);
+
+    res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('Error fetching courses:', error);
+    throw error;
+  }
+}));
+
+router.post('/sysadmin/courses', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const {
+      name,
+      description,
+      duration_hours,
+      duration_minutes,
+      prerequisites,
+      certification_type,
+      validity_period_months,
+      course_category,
+      regulatory_compliance
+    } = req.body;
+
+    if (!name) {
+      throw new AppError(400, errorCodes.VALIDATION_ERROR, 'Course name is required');
+    }
+
+    // Generate course code from first 3 letters of name
+    const courseCode = name.substring(0, 3).toUpperCase();
+
+    const result = await pool.query(`
+      INSERT INTO class_types (
+        name, description, course_code, duration_hours, duration_minutes,
+        prerequisites, certification_type, validity_period_months,
+        course_category, regulatory_compliance, is_active
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, true)
+      RETURNING *
+    `, [
+      name, description, courseCode, duration_hours, duration_minutes,
+      prerequisites, certification_type, validity_period_months,
+      course_category, regulatory_compliance
+    ]);
+
+    res.json({
+      success: true,
+      message: 'Course created successfully',
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error creating course:', error);
+    throw error;
+  }
+}));
+
+router.put('/sysadmin/courses/:id', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const {
+      name,
+      description,
+      duration_hours,
+      duration_minutes,
+      prerequisites,
+      certification_type,
+      validity_period_months,
+      course_category,
+      regulatory_compliance,
+      is_active
+    } = req.body;
+
+    // Generate course code from first 3 letters of name if name is updated
+    const courseCode = name ? name.substring(0, 3).toUpperCase() : undefined;
+
+    const result = await pool.query(`
+      UPDATE class_types
+      SET 
+        name = COALESCE($1, name),
+        description = COALESCE($2, description),
+        course_code = COALESCE($3, course_code),
+        duration_hours = COALESCE($4, duration_hours),
+        duration_minutes = COALESCE($5, duration_minutes),
+        prerequisites = COALESCE($6, prerequisites),
+        certification_type = COALESCE($7, certification_type),
+        validity_period_months = COALESCE($8, validity_period_months),
+        course_category = COALESCE($9, course_category),
+        regulatory_compliance = COALESCE($10, regulatory_compliance),
+        is_active = COALESCE($11, is_active),
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $12
+      RETURNING *
+    `, [
+      name, description, courseCode, duration_hours, duration_minutes,
+      prerequisites, certification_type, validity_period_months,
+      course_category, regulatory_compliance, is_active, id
+    ]);
+
+    if (result.rows.length === 0) {
+      throw new AppError(404, errorCodes.RESOURCE_NOT_FOUND, 'Course not found');
+    }
+
+    res.json({
+      success: true,
+      message: 'Course updated successfully',
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error updating course:', error);
+    throw error;
+  }
+}));
+
+router.delete('/sysadmin/courses/:id', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const result = await pool.query(`
+      UPDATE class_types
+      SET is_active = false, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+      RETURNING *
+    `, [id]);
+
+    if (result.rows.length === 0) {
+      throw new AppError(404, errorCodes.RESOURCE_NOT_FOUND, 'Course not found');
+    }
+
+    res.json({
+      success: true,
+      message: 'Course deactivated successfully',
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error deactivating course:', error);
+    throw error;
+  }
+}));
+
+// User Management
+router.get('/sysadmin/users', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        u.id,
+        u.username,
+        u.email,
+        u.full_name,
+        u.first_name,
+        u.last_name,
+        u.role,
+        u.mobile,
+        u.date_onboarded,
+        u.date_offboarded,
+        u.user_comments,
+        u.status,
+        u.organization_id,
+        o.name as organization_name,
+        u.created_at,
+        u.updated_at
+      FROM users u
+      LEFT JOIN organizations o ON u.organization_id = o.id
+      ORDER BY u.created_at DESC
+    `);
+
+    res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('Error fetching users:', error);
+    throw error;
+  }
+}));
+
+router.post('/sysadmin/users', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const {
+      username,
+      email,
+      password,
+      first_name,
+      last_name,
+      full_name,
+      role,
+      mobile,
+      organization_id,
+      date_onboarded,
+      user_comments
+    } = req.body;
+
+    if (!username || !email || !password || !role) {
+      throw new AppError(400, errorCodes.VALIDATION_ERROR, 'Username, email, password, and role are required');
+    }
+
+    const bcrypt = require('bcryptjs');
+    const passwordHash = bcrypt.hashSync(password, 10);
+    const displayName = full_name || `${first_name || ''} ${last_name || ''}`.trim();
+
+    const result = await pool.query(`
+      INSERT INTO users (
+        username, email, password_hash, full_name, first_name, last_name,
+        role, mobile, organization_id, date_onboarded, user_comments, status
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'active')
+      RETURNING id, username, email, full_name, first_name, last_name, role, mobile, organization_id, date_onboarded, user_comments, status
+    `, [
+      username, email, passwordHash, displayName, first_name, last_name,
+      role, mobile, organization_id, date_onboarded, user_comments
+    ]);
+
+    res.json({
+      success: true,
+      message: 'User created successfully',
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error creating user:', error);
+    throw error;
+  }
+}));
+
+router.put('/sysadmin/users/:id', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const {
+      username,
+      email,
+      password,
+      first_name,
+      last_name,
+      full_name,
+      role,
+      mobile,
+      organization_id,
+      date_onboarded,
+      date_offboarded,
+      user_comments,
+      status
+    } = req.body;
+
+    let passwordHash = undefined;
+    if (password) {
+      const bcrypt = require('bcryptjs');
+      passwordHash = bcrypt.hashSync(password, 10);
+    }
+
+    const displayName = full_name || (first_name || last_name ? `${first_name || ''} ${last_name || ''}`.trim() : undefined);
+
+    const result = await pool.query(`
+      UPDATE users
+      SET 
+        username = COALESCE($1, username),
+        email = COALESCE($2, email),
+        password_hash = COALESCE($3, password_hash),
+        full_name = COALESCE($4, full_name),
+        first_name = COALESCE($5, first_name),
+        last_name = COALESCE($6, last_name),
+        role = COALESCE($7, role),
+        mobile = COALESCE($8, mobile),
+        organization_id = COALESCE($9, organization_id),
+        date_onboarded = COALESCE($10, date_onboarded),
+        date_offboarded = COALESCE($11, date_offboarded),
+        user_comments = COALESCE($12, user_comments),
+        status = COALESCE($13, status),
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $14
+      RETURNING id, username, email, full_name, first_name, last_name, role, mobile, organization_id, date_onboarded, date_offboarded, user_comments, status
+    `, [
+      username, email, passwordHash, displayName, first_name, last_name,
+      role, mobile, organization_id, date_onboarded, date_offboarded,
+      user_comments, status, id
+    ]);
+
+    if (result.rows.length === 0) {
+      throw new AppError(404, errorCodes.RESOURCE_NOT_FOUND, 'User not found');
+    }
+
+    res.json({
+      success: true,
+      message: 'User updated successfully',
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error updating user:', error);
+    throw error;
+  }
+}));
+
+router.delete('/sysadmin/users/:id', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const result = await pool.query(`
+      UPDATE users
+      SET status = 'inactive', date_offboarded = CURRENT_DATE, updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+      RETURNING id, username, email, status
+    `, [id]);
+
+    if (result.rows.length === 0) {
+      throw new AppError(404, errorCodes.RESOURCE_NOT_FOUND, 'User not found');
+    }
+
+    res.json({
+      success: true,
+      message: 'User deactivated successfully',
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error deactivating user:', error);
+    throw error;
+  }
+}));
+
+// Vendor Management
+router.get('/sysadmin/vendors', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        id,
+        vendor_name,
+        contact_first_name,
+        contact_last_name,
+        email,
+        mobile,
+        phone,
+        address_street,
+        address_city,
+        address_province,
+        address_postal_code,
+        vendor_type,
+        services,
+        contract_start_date,
+        contract_end_date,
+        performance_rating,
+        insurance_expiry,
+        certification_status,
+        billing_contact_email,
+        status,
+        comments,
+        created_at,
+        updated_at
+      FROM vendors
+      ORDER BY vendor_name
+    `);
+
+    res.json({
+      success: true,
+      data: result.rows
+    });
+  } catch (error) {
+    console.error('Error fetching vendors:', error);
+    throw error;
+  }
+}));
+
+router.post('/sysadmin/vendors', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const {
+      vendor_name,
+      contact_first_name,
+      contact_last_name,
+      email,
+      mobile,
+      phone,
+      address_street,
+      address_city,
+      address_province,
+      address_postal_code,
+      vendor_type,
+      services,
+      contract_start_date,
+      contract_end_date,
+      performance_rating,
+      insurance_expiry,
+      certification_status,
+      billing_contact_email,
+      comments
+    } = req.body;
+
+    if (!vendor_name) {
+      throw new AppError(400, errorCodes.VALIDATION_ERROR, 'Vendor name is required');
+    }
+
+    const result = await pool.query(`
+      INSERT INTO vendors (
+        vendor_name, contact_first_name, contact_last_name, email, mobile, phone,
+        address_street, address_city, address_province, address_postal_code,
+        vendor_type, services, contract_start_date, contract_end_date,
+        performance_rating, insurance_expiry, certification_status,
+        billing_contact_email, comments, status
+      )
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, 'active')
+      RETURNING *
+    `, [
+      vendor_name, contact_first_name, contact_last_name, email, mobile, phone,
+      address_street, address_city, address_province, address_postal_code,
+      vendor_type, services, contract_start_date, contract_end_date,
+      performance_rating, insurance_expiry, certification_status,
+      billing_contact_email, comments
+    ]);
+
+    res.json({
+      success: true,
+      message: 'Vendor created successfully',
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error creating vendor:', error);
+    throw error;
+  }
+}));
+
+router.put('/sysadmin/vendors/:id', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    const {
+      vendor_name,
+      contact_first_name,
+      contact_last_name,
+      email,
+      mobile,
+      phone,
+      address_street,
+      address_city,
+      address_province,
+      address_postal_code,
+      vendor_type,
+      services,
+      contract_start_date,
+      contract_end_date,
+      performance_rating,
+      insurance_expiry,
+      certification_status,
+      billing_contact_email,
+      status,
+      comments
+    } = req.body;
+
+    const result = await pool.query(`
+      UPDATE vendors
+      SET 
+        vendor_name = COALESCE($1, vendor_name),
+        contact_first_name = COALESCE($2, contact_first_name),
+        contact_last_name = COALESCE($3, contact_last_name),
+        email = COALESCE($4, email),
+        mobile = COALESCE($5, mobile),
+        phone = COALESCE($6, phone),
+        address_street = COALESCE($7, address_street),
+        address_city = COALESCE($8, address_city),
+        address_province = COALESCE($9, address_province),
+        address_postal_code = COALESCE($10, address_postal_code),
+        vendor_type = COALESCE($11, vendor_type),
+        services = COALESCE($12, services),
+        contract_start_date = COALESCE($13, contract_start_date),
+        contract_end_date = COALESCE($14, contract_end_date),
+        performance_rating = COALESCE($15, performance_rating),
+        insurance_expiry = COALESCE($16, insurance_expiry),
+        certification_status = COALESCE($17, certification_status),
+        billing_contact_email = COALESCE($18, billing_contact_email),
+        status = COALESCE($19, status),
+        comments = COALESCE($20, comments),
+        updated_at = CURRENT_TIMESTAMP
+      WHERE id = $21
+      RETURNING *
+    `, [
+      vendor_name, contact_first_name, contact_last_name, email, mobile, phone,
+      address_street, address_city, address_province, address_postal_code,
+      vendor_type, services, contract_start_date, contract_end_date,
+      performance_rating, insurance_expiry, certification_status,
+      billing_contact_email, status, comments, id
+    ]);
+
+    if (result.rows.length === 0) {
+      throw new AppError(404, errorCodes.RESOURCE_NOT_FOUND, 'Vendor not found');
+    }
+
+    res.json({
+      success: true,
+      message: 'Vendor updated successfully',
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error updating vendor:', error);
+    throw error;
+  }
+}));
+
+router.delete('/sysadmin/vendors/:id', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    const result = await pool.query(`
+      UPDATE vendors
+      SET status = 'inactive', updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+      RETURNING *
+    `, [id]);
+
+    if (result.rows.length === 0) {
+      throw new AppError(404, errorCodes.RESOURCE_NOT_FOUND, 'Vendor not found');
+    }
+
+    res.json({
+      success: true,
+      message: 'Vendor deactivated successfully',
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error deactivating vendor:', error);
+    throw error;
+  }
+}));
+
+// System Administration Dashboard
+router.get('/sysadmin/dashboard', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    // Get total counts
+    const userCount = await pool.query('SELECT COUNT(*) as count FROM users WHERE status = \'active\'');
+    const organizationCount = await pool.query('SELECT COUNT(*) as count FROM organizations');
+    const courseCount = await pool.query('SELECT COUNT(*) as count FROM class_types WHERE is_active = true');
+    const vendorCount = await pool.query('SELECT COUNT(*) as count FROM vendors WHERE status = \'active\'');
+    
+    // Get recent activity
+    const recentUsers = await pool.query(`
+      SELECT username, role, created_at 
+      FROM users 
+      ORDER BY created_at DESC 
+      LIMIT 5
+    `);
+    
+    const recentCourses = await pool.query(`
+      SELECT name, course_code, created_at 
+      FROM class_types 
+      WHERE is_active = true 
+      ORDER BY created_at DESC 
+      LIMIT 5
+    `);
+
+    const dashboardData = {
+      summary: {
+        totalUsers: parseInt(userCount.rows[0].count),
+        totalOrganizations: parseInt(organizationCount.rows[0].count),
+        totalCourses: parseInt(courseCount.rows[0].count),
+        totalVendors: parseInt(vendorCount.rows[0].count)
+      },
+      recentActivity: {
+        users: recentUsers.rows,
+        courses: recentCourses.rows
+      }
+    };
+
+    res.json({
+      success: true,
+      data: dashboardData
+    });
+  } catch (error) {
+    console.error('Error fetching system admin dashboard:', error);
+    throw error;
+  }
+}));
+
 export default router; 

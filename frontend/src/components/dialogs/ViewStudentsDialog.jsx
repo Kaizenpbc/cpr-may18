@@ -17,7 +17,7 @@ import {
     Divider
 } from '@mui/material';
 import { Person as PersonIcon, Email as EmailIcon } from '@mui/icons-material';
-import { organizationApi } from '../../services/api';
+import { organizationApi } from '../../services/api.ts';
 import logger from '../../utils/logger';
 
 const ViewStudentsDialog = ({ open, onClose, courseId }) => {

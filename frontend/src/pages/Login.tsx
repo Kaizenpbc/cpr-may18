@@ -32,7 +32,9 @@ const Login = () => {
     setIsLoading(true)
 
     try {
-      await login(username, password)
+      // Trim whitespace from username to prevent authentication issues
+      const trimmedUsername = username.trim();
+      await login(trimmedUsername, password)
       console.log('Login - Login successful, AuthContext will handle navigation');
       // No manual navigation - AuthContext handles this and restores user's location
     } catch (err: any) {

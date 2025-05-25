@@ -17,7 +17,7 @@ import {
     Divider
 } from '@mui/material';
 import Typography from '@mui/material/Typography';
-import * as api from '../../services/api'; // Adjust path as needed
+import * as api from '../../services/api.ts'; // Adjust path as needed
 import logger from '../../utils/logger';
 import { recordPayment } from '../../services/paymentService';
 
