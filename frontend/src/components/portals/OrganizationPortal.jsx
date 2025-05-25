@@ -1,8 +1,10 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect, useCallback, Suspense, lazy } from 'react';
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import * as api from '../../services/api.ts';
 import logger from '../../utils/logger';
+import ErrorBoundary from '../common/ErrorBoundary';
+import analytics from '../../services/analytics';
 import {
     Box,
     Container,
@@ -28,17 +30,26 @@ import {
     Groups as StudentsIcon,
     Person as ProfileIcon
 } from '@mui/icons-material';
-import ScheduleCourseForm from '../forms/ScheduleCourseForm';
-import OrganizationCoursesTable from '../tables/OrganizationCoursesTable';
-import StudentUploadDialog from '../dialogs/StudentUploadDialog';
-import ViewStudentsDialog from '../dialogs/ViewStudentsDialog';
-import OrganizationProfile from '../views/organization/OrganizationProfile';
+// Lazy load components for better performance
+const ScheduleCourseForm = lazy(() => import('../forms/ScheduleCourseForm'));
+const OrganizationCoursesTable = lazy(() => import('../tables/OrganizationCoursesTable'));
+const StudentUploadDialog = lazy(() => import('../dialogs/StudentUploadDialog'));
+const ViewStudentsDialog = lazy(() => import('../dialogs/ViewStudentsDialog'));
+const OrganizationProfile = lazy(() => import('../views/organization/OrganizationProfile'));
 
 const drawerWidth = 240;
+
+// Loading component for Suspense fallbacks
+const LoadingFallback = () => (
+    <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
+        <CircularProgress />
+    </Box>
+);
 
 const OrganizationPortal = () => {
     const { user, logout } = useAuth();
     const navigate = useNavigate();
+    const location = useLocation();
     const [selectedView, setSelectedView] = useState('myCourses');
     const [organizationCourses, setOrganizationCourses] = useState([]);
     const [isLoadingCourses, setIsLoadingCourses] = useState(true);
@@ -54,6 +65,41 @@ const OrganizationPortal = () => {
     const showSnackbar = useCallback((message, severity = 'success') => {
         setSnackbar({ open: true, message, severity });
     }, []);
+
+    // Analytics: Track user and page views
+    useEffect(() => {
+        if (user) {
+            analytics.setUser(user.id || user.username, {
+                role: user.role,
+                portal: 'organization',
+                organizationId: user.organizationId,
+                organizationName: user.organizationName
+            });
+        }
+    }, [user]);
+
+    useEffect(() => {
+        const currentView = getCurrentView();
+        analytics.trackPageView(`organization_${currentView}`, {
+            portal: 'organization',
+            view: currentView,
+            organizationId: user?.organizationId
+        });
+    }, [location.pathname, user?.organizationId]);
+
+    // Error handler for error boundaries
+    const handleError = (error, errorInfo) => {
+        analytics.trackError(error, 'organization_portal', {
+            componentStack: errorInfo.componentStack,
+            view: getCurrentView(),
+            organizationId: user?.organizationId
+        });
+    };
+
+    // Get current view from URL or state
+    const getCurrentView = () => {
+        return selectedView;
+    };
 
     const handleLogout = () => {
         const firstName = user?.first_name || 'Org User';
@@ -134,12 +180,27 @@ const OrganizationPortal = () => {
 
     const renderSelectedView = () => {
         if (selectedView === 'schedule') {
-            return <ScheduleCourseForm onCourseScheduled={handleCourseScheduled} />;
+            return (
+                <ErrorBoundary onError={handleError}>
+                    <Suspense fallback={<LoadingFallback />}>
+                        <ScheduleCourseForm 
+                            onCourseScheduled={(newCourse) => {
+                                analytics.trackOrganizationAction('course_scheduled', { 
+                                    courseId: newCourse?.id,
+                                    organizationId: user?.organizationId 
+                                });
+                                handleCourseScheduled(newCourse);
+                                loadOrgCourses(); // Refresh courses after scheduling
+                            }} 
+                        />
+                    </Suspense>
+                </ErrorBoundary>
+            );
         }
 
         if (selectedView === 'classManagement') {
             if (isLoadingCourses) {
-                return <CircularProgress />;
+                return <LoadingFallback />;
             }
             if (coursesError) {
                 return <Alert severity="error">{coursesError}</Alert>;
@@ -150,39 +211,55 @@ const OrganizationPortal = () => {
             );
 
             return (
-                <Box>
-                    <Typography variant="h5" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <StudentsIcon color="primary" />
-                        Class Management
-                    </Typography>
-                    <Typography variant="body1" color="text.secondary" paragraph>
-                        Upload and manage student lists for your confirmed courses.
-                    </Typography>
+                <ErrorBoundary onError={handleError}>
+                    <Box>
+                        <Typography variant="h5" gutterBottom sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                            <StudentsIcon color="primary" />
+                            Class Management
+                        </Typography>
+                        <Typography variant="body1" color="text.secondary" paragraph>
+                            Upload and manage student lists for your confirmed courses.
+                        </Typography>
 
-                    {confirmedCourses.length === 0 ? (
-                        <Alert severity="info" sx={{ mt: 2 }}>
-                            <Typography variant="body2">
-                                No confirmed courses available for student management. 
-                                Schedule a course first and wait for instructor assignment.
-                            </Typography>
-                        </Alert>
-                    ) : (
-                        <OrganizationCoursesTable 
-                            courses={confirmedCourses}
-                            onUploadStudentsClick={handleUploadStudentsClick} 
-                            onViewStudentsClick={handleViewStudentsClick}
-                            sortOrder={orgCoursesSortOrder}
-                            sortBy={orgCoursesSortBy}
-                            onSortRequest={handleOrgCoursesSortRequest}
-                        />
-                    )}
-                </Box>
+                        {confirmedCourses.length === 0 ? (
+                            <Alert severity="info" sx={{ mt: 2 }}>
+                                <Typography variant="body2">
+                                    No confirmed courses available for student management. 
+                                    Schedule a course first and wait for instructor assignment.
+                                </Typography>
+                            </Alert>
+                        ) : (
+                            <Suspense fallback={<LoadingFallback />}>
+                                <OrganizationCoursesTable 
+                                    courses={confirmedCourses}
+                                    onUploadStudentsClick={(courseId) => {
+                                        analytics.trackOrganizationAction('upload_students_click', { 
+                                            courseId,
+                                            organizationId: user?.organizationId 
+                                        });
+                                        handleUploadStudentsClick(courseId);
+                                    }} 
+                                    onViewStudentsClick={(courseId) => {
+                                        analytics.trackOrganizationAction('view_students_click', { 
+                                            courseId,
+                                            organizationId: user?.organizationId 
+                                        });
+                                        handleViewStudentsClick(courseId);
+                                    }}
+                                    sortOrder={orgCoursesSortOrder}
+                                    sortBy={orgCoursesSortBy}
+                                    onSortRequest={handleOrgCoursesSortRequest}
+                                />
+                            </Suspense>
+                        )}
+                    </Box>
+                </ErrorBoundary>
             );
         }
 
         if (selectedView === 'myCourses') {
             if (isLoadingCourses) {
-                return <CircularProgress />;
+                return <LoadingFallback />;
             }
             if (coursesError) {
                 return <Alert severity="error">{coursesError}</Alert>;
@@ -202,27 +279,49 @@ const OrganizationPortal = () => {
             });
 
             return (
-                <Box>
-                    <Typography variant="h5" gutterBottom>
-                        My Courses
-                    </Typography>
-                    <Typography variant="body1" color="text.secondary" paragraph>
-                        View all your course requests and their current status.
-                    </Typography>
-                    <OrganizationCoursesTable 
-                        courses={sortedOrgCourses}
-                        onUploadStudentsClick={handleUploadStudentsClick} 
-                        onViewStudentsClick={handleViewStudentsClick}
-                        sortOrder={orgCoursesSortOrder}
-                        sortBy={orgCoursesSortBy}
-                        onSortRequest={handleOrgCoursesSortRequest}
-                    />
-                </Box>
+                <ErrorBoundary onError={handleError}>
+                    <Box>
+                        <Typography variant="h5" gutterBottom>
+                            My Courses
+                        </Typography>
+                        <Typography variant="body1" color="text.secondary" paragraph>
+                            View all your course requests and their current status.
+                        </Typography>
+                        <Suspense fallback={<LoadingFallback />}>
+                            <OrganizationCoursesTable 
+                                courses={sortedOrgCourses}
+                                onUploadStudentsClick={(courseId) => {
+                                    analytics.trackOrganizationAction('upload_students_click', { 
+                                        courseId,
+                                        organizationId: user?.organizationId 
+                                    });
+                                    handleUploadStudentsClick(courseId);
+                                }} 
+                                onViewStudentsClick={(courseId) => {
+                                    analytics.trackOrganizationAction('view_students_click', { 
+                                        courseId,
+                                        organizationId: user?.organizationId 
+                                    });
+                                    handleViewStudentsClick(courseId);
+                                }}
+                                sortOrder={orgCoursesSortOrder}
+                                sortBy={orgCoursesSortBy}
+                                onSortRequest={handleOrgCoursesSortRequest}
+                            />
+                        </Suspense>
+                    </Box>
+                </ErrorBoundary>
             );
         }
 
         if (selectedView === 'profile') {
-            return <OrganizationProfile showSnackbar={showSnackbar} />;
+            return (
+                <ErrorBoundary onError={handleError}>
+                    <Suspense fallback={<LoadingFallback />}>
+                        <OrganizationProfile showSnackbar={showSnackbar} />
+                    </Suspense>
+                </ErrorBoundary>
+            );
         }
 
         return null;
@@ -261,7 +360,14 @@ const OrganizationPortal = () => {
                         <ListItem 
                             component="div" 
                             selected={selectedView === 'schedule'}
-                            onClick={() => setSelectedView('schedule')}
+                            onClick={() => {
+                                analytics.trackOrganizationAction('navigation', { 
+                                    from: selectedView, 
+                                    to: 'schedule',
+                                    organizationId: user?.organizationId 
+                                });
+                                setSelectedView('schedule');
+                            }}
                             sx={{
                                 cursor: 'pointer', 
                                 py: 1.5, 
@@ -283,7 +389,14 @@ const OrganizationPortal = () => {
                         <ListItem 
                             component="div" 
                             selected={selectedView === 'myCourses'}
-                            onClick={() => setSelectedView('myCourses')}
+                            onClick={() => {
+                                analytics.trackOrganizationAction('navigation', { 
+                                    from: selectedView, 
+                                    to: 'myCourses',
+                                    organizationId: user?.organizationId 
+                                });
+                                setSelectedView('myCourses');
+                            }}
                             sx={{
                                 cursor: 'pointer', 
                                 py: 1.5, 
@@ -305,7 +418,14 @@ const OrganizationPortal = () => {
                         <ListItem 
                             component="div" 
                             selected={selectedView === 'classManagement'}
-                            onClick={() => setSelectedView('classManagement')}
+                            onClick={() => {
+                                analytics.trackOrganizationAction('navigation', { 
+                                    from: selectedView, 
+                                    to: 'classManagement',
+                                    organizationId: user?.organizationId 
+                                });
+                                setSelectedView('classManagement');
+                            }}
                             sx={{
                                 cursor: 'pointer', 
                                 py: 1.5, 
@@ -327,7 +447,14 @@ const OrganizationPortal = () => {
                         <ListItem 
                             component="div" 
                             selected={selectedView === 'profile'}
-                            onClick={() => setSelectedView('profile')}
+                            onClick={() => {
+                                analytics.trackOrganizationAction('navigation', { 
+                                    from: selectedView, 
+                                    to: 'profile',
+                                    organizationId: user?.organizationId 
+                                });
+                                setSelectedView('profile');
+                            }}
                             sx={{
                                 cursor: 'pointer', 
                                 py: 1.5, 
@@ -369,21 +496,37 @@ const OrganizationPortal = () => {
 
             <Box component="main" sx={{ flexGrow: 1, p: 3 }}>
                 <Toolbar />
-                {renderSelectedView()}
+                <ErrorBoundary onError={handleError}>
+                    <Container maxWidth="lg">
+                        <Suspense fallback={<LoadingFallback />}>
+                            {renderSelectedView()}
+                        </Suspense>
+                    </Container>
+                </ErrorBoundary>
             </Box>
 
-            <StudentUploadDialog
-                open={showUploadDialog}
-                onClose={handleUploadDialogClose}
-                courseId={selectedCourseForUpload}
-                onUploadComplete={handleUploadComplete}
-            />
+            <Suspense fallback={null}>
+                <StudentUploadDialog
+                    open={showUploadDialog}
+                    onClose={handleUploadDialogClose}
+                    courseId={selectedCourseForUpload}
+                    onUploadComplete={(message) => {
+                        analytics.trackOrganizationAction('students_uploaded', { 
+                            courseId: selectedCourseForUpload,
+                            organizationId: user?.organizationId 
+                        });
+                        handleUploadComplete(message);
+                    }}
+                />
+            </Suspense>
 
-            <ViewStudentsDialog
-                open={showViewStudentsDialog}
-                onClose={handleViewStudentsDialogClose}
-                courseId={selectedCourseForView}
-            />
+            <Suspense fallback={null}>
+                <ViewStudentsDialog
+                    open={showViewStudentsDialog}
+                    onClose={handleViewStudentsDialogClose}
+                    courseId={selectedCourseForView}
+                />
+            </Suspense>
 
             <Snackbar
                 open={snackbar.open}

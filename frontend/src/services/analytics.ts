@@ -210,6 +210,17 @@ class AnalyticsService {
   }
 
   /**
+   * Track organization-specific actions
+   */
+  trackOrganizationAction(action: string, properties?: Record<string, any>) {
+    this.track('organization_action', {
+      action,
+      portal: 'organization',
+      ...properties
+    });
+  }
+
+  /**
    * Track class management actions
    */
   trackClassAction(action: string, classId?: number, properties?: Record<string, any>) {
