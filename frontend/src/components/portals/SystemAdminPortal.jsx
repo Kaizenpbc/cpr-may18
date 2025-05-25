@@ -1,8 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation, Routes, Route } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import { sysAdminApi, getOrganizations } from '../../services/api.ts';
-import logger from '../../utils/logger';
 import {
     Box,
     Container,
@@ -22,7 +20,8 @@ import {
     Dashboard as DashboardIcon,
     School as CourseIcon,
     People as UsersIcon,
-    Business as VendorIcon,
+    Business as BusinessIcon,
+    Store as StoreIcon,
     Logout as LogoutIcon,
     Settings as SettingsIcon
 } from '@mui/icons-material';
@@ -30,13 +29,14 @@ import SystemAdminDashboard from '../sysadmin/SystemAdminDashboard';
 import CourseManagement from '../sysadmin/CourseManagement';
 import UserManagement from '../sysadmin/UserManagement';
 import VendorManagement from '../sysadmin/VendorManagement';
+import OrganizationManagement from '../sysadmin/OrganizationManagement';
 
 const drawerWidth = 240;
 
 const SystemAdminPortal = () => {
     const { user, logout } = useAuth();
     const navigate = useNavigate();
-    const [selectedView, setSelectedView] = useState('dashboard');
+    const location = useLocation();
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
 
     const showSnackbar = (message, severity = 'success') => {
@@ -55,26 +55,12 @@ const SystemAdminPortal = () => {
     };
 
     const menuItems = [
-        { key: 'dashboard', label: 'System Dashboard', icon: <DashboardIcon /> },
-        { key: 'courses', label: 'Course Management', icon: <CourseIcon /> },
-        { key: 'users', label: 'User Management', icon: <UsersIcon /> },
-        { key: 'vendors', label: 'Vendor Management', icon: <VendorIcon /> }
+        { key: 'dashboard', label: 'System Dashboard', icon: <DashboardIcon />, path: '/sysadmin' },
+        { key: 'courses', label: 'Course Management', icon: <CourseIcon />, path: '/sysadmin/courses' },
+        { key: 'organizations', label: 'Organization Management', icon: <BusinessIcon />, path: '/sysadmin/organizations' },
+        { key: 'users', label: 'User Management', icon: <UsersIcon />, path: '/sysadmin/users' },
+        { key: 'vendors', label: 'Vendor Management', icon: <StoreIcon />, path: '/sysadmin/vendors' }
     ];
-
-    const renderSelectedView = () => {
-        switch (selectedView) {
-            case 'dashboard':
-                return <SystemAdminDashboard onShowSnackbar={showSnackbar} />;
-            case 'courses':
-                return <CourseManagement onShowSnackbar={showSnackbar} />;
-            case 'users':
-                return <UserManagement onShowSnackbar={showSnackbar} />;
-            case 'vendors':
-                return <VendorManagement onShowSnackbar={showSnackbar} />;
-            default:
-                return <SystemAdminDashboard onShowSnackbar={showSnackbar} />;
-        }
-    };
 
     return (
         <Box sx={{ display: 'flex' }}>
@@ -111,18 +97,18 @@ const SystemAdminPortal = () => {
                             <ListItem
                                 key={item.key}
                                 component="div"
-                                selected={selectedView === item.key}
-                                onClick={() => setSelectedView(item.key)}
+                                selected={location.pathname === item.path}
+                                onClick={() => navigate(item.path)}
                                 sx={{
                                     cursor: 'pointer',
                                     py: 1.5,
-                                    backgroundColor: selectedView === item.key ? 'primary.light' : 'transparent',
-                                    color: selectedView === item.key ? 'primary.contrastText' : 'inherit',
+                                    backgroundColor: location.pathname === item.path ? 'primary.light' : 'transparent',
+                                    color: location.pathname === item.path ? 'primary.contrastText' : 'inherit',
                                     '& .MuiListItemIcon-root': {
-                                        color: selectedView === item.key ? 'primary.contrastText' : 'inherit',
+                                        color: location.pathname === item.path ? 'primary.contrastText' : 'inherit',
                                     },
                                     '&:hover': {
-                                        backgroundColor: selectedView === item.key ? 'primary.main' : 'action.hover',
+                                        backgroundColor: location.pathname === item.path ? 'primary.main' : 'action.hover',
                                     }
                                 }}
                             >
@@ -154,7 +140,13 @@ const SystemAdminPortal = () => {
             <Box component="main" sx={{ flexGrow: 1, p: 3 }}>
                 <Toolbar />
                 <Container maxWidth="xl">
-                    {renderSelectedView()}
+                    <Routes>
+                        <Route path="/" element={<SystemAdminDashboard />} />
+                        <Route path="/courses" element={<CourseManagement />} />
+                        <Route path="/organizations" element={<OrganizationManagement />} />
+                        <Route path="/users" element={<UserManagement />} />
+                        <Route path="/vendors" element={<VendorManagement />} />
+                    </Routes>
                 </Container>
             </Box>
 

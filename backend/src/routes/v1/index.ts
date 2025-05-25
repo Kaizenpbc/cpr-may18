@@ -2267,4 +2267,211 @@ router.get('/sysadmin/dashboard', asyncHandler(async (req: Request, res: Respons
   }
 }));
 
+// Organization Management
+router.get('/sysadmin/organizations', asyncHandler(async (req: Request, res: Response) => {
+  console.log('[Debug] Getting all organizations for sysadmin');
+  
+  const query = `
+    SELECT 
+      o.id,
+      o.name as organization_name,
+      o.address,
+      o.city,
+      o.province,
+      o.postal_code,
+      o.country,
+      o.created_at,
+      o.contact_person,
+      o.contact_position,
+      o.contact_email,
+      o.contact_phone,
+      o.organization_comments,
+      COUNT(DISTINCT u.id) as user_count,
+      COUNT(DISTINCT cr.id) as course_count
+    FROM organizations o
+    LEFT JOIN users u ON u.organization_id = o.id
+    LEFT JOIN course_requests cr ON cr.organization_id = o.id
+    GROUP BY o.id, o.name, o.address, o.city, o.province, 
+             o.postal_code, o.country, o.contact_person, o.contact_position,
+             o.contact_email, o.contact_phone, o.organization_comments
+    ORDER BY o.name
+  `;
+  
+  const result = await pool.query(query);
+  
+  res.json({
+    success: true,
+    data: result.rows
+  });
+}));
+
+router.post('/sysadmin/organizations', asyncHandler(async (req: Request, res: Response) => {
+  console.log('[Debug] Creating new organization:', req.body);
+  
+  const {
+    name,
+    address,
+    city,
+    province,
+    postal_code,
+    country,
+    contact_person,
+    contact_position,
+    contact_email,
+    contact_phone,
+    organization_comments
+  } = req.body;
+  
+  const query = `
+    INSERT INTO organizations (
+      name,
+      address,
+      city,
+      province,
+      postal_code,
+      country,
+      contact_person,
+      contact_position,
+      contact_email,
+      contact_phone,
+      organization_comments,
+      created_at
+    ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP)
+    RETURNING *
+  `;
+  
+  const values = [
+    name,
+    address || '',
+    city || '',
+    province || '',
+    postal_code || '',
+    country || 'Canada',
+    contact_person,
+    contact_position,
+    contact_email,
+    contact_phone,
+    organization_comments
+  ];
+  
+  const result = await pool.query(query, values);
+  
+  res.status(201).json({
+    success: true,
+    data: result.rows[0],
+    message: 'Organization created successfully'
+  });
+}));
+
+router.put('/sysadmin/organizations/:id', asyncHandler(async (req: Request, res: Response) => {
+  const { id } = req.params;
+  console.log('[Debug] Updating organization:', id, req.body);
+  
+  const {
+    name,
+    address,
+    city,
+    province,
+    postal_code,
+    country,
+    contact_person,
+    contact_position,
+    contact_email,
+    contact_phone,
+    organization_comments
+  } = req.body;
+  
+  const query = `
+    UPDATE organizations
+    SET 
+      name = $1,
+      address = $2,
+      city = $3,
+      province = $4,
+      postal_code = $5,
+      country = $6,
+      contact_person = $7,
+      contact_position = $8,
+      contact_email = $9,
+      contact_phone = $10,
+      organization_comments = $11
+    WHERE id = $12
+    RETURNING *
+  `;
+  
+  const values = [
+    name,
+    address || '',
+    city || '',
+    province || '',
+    postal_code || '',
+    country || 'Canada',
+    contact_person,
+    contact_position,
+    contact_email,
+    contact_phone,
+    organization_comments,
+    id
+  ];
+  
+  const result = await pool.query(query, values);
+  
+  if (result.rows.length === 0) {
+    return res.status(404).json({
+      success: false,
+      error: { message: 'Organization not found' }
+    });
+  }
+  
+  res.json({
+    success: true,
+    data: result.rows[0],
+    message: 'Organization updated successfully'
+  });
+}));
+
+router.delete('/sysadmin/organizations/:id', asyncHandler(async (req: Request, res: Response) => {
+  const { id } = req.params;
+  console.log('[Debug] Deleting organization:', id);
+  
+  // Check for dependencies
+  const checkQuery = `
+    SELECT 
+      COUNT(DISTINCT u.id) as user_count,
+      COUNT(DISTINCT cr.id) as course_count
+    FROM organizations o
+    LEFT JOIN users u ON u.organization_id = o.id
+    LEFT JOIN course_requests cr ON cr.organization_id = o.id
+    WHERE o.id = $1
+  `;
+  
+  const checkResult = await pool.query(checkQuery, [id]);
+  const { user_count, course_count } = checkResult.rows[0];
+  
+  if (parseInt(user_count) > 0 || parseInt(course_count) > 0) {
+    return res.status(400).json({
+      success: false,
+      error: {
+        message: 'Cannot delete organization with associated users or courses',
+        details: `${user_count} users and ${course_count} courses are linked to this organization`
+      }
+    });
+  }
+  
+  const deleteQuery = 'DELETE FROM organizations WHERE id = $1 RETURNING *';
+  const result = await pool.query(deleteQuery, [id]);
+  
+  if (result.rows.length === 0) {
+    return res.status(404).json({
+      success: false,
+      error: { message: 'Organization not found' }
+    });
+  }
+  
+  res.json({
+    success: true,
+    message: 'Organization deleted successfully'
+  });
+}));
+
 export default router; 

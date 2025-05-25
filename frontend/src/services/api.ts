@@ -385,6 +385,24 @@ export const sysAdminApi = {
   deleteVendor: async (vendorId: number) => {
     const response = await api.delete(`/api/v1/sysadmin/vendors/${vendorId}`);
     return response.data;
+  },
+
+  // Organization Management
+  getOrganizations: async () => {
+    const response = await api.get('/api/v1/sysadmin/organizations');
+    return response.data;
+  },
+  createOrganization: async (orgData: any) => {
+    const response = await api.post('/api/v1/sysadmin/organizations', orgData);
+    return response.data;
+  },
+  updateOrganization: async (orgId: number, orgData: any) => {
+    const response = await api.put(`/api/v1/sysadmin/organizations/${orgId}`, orgData);
+    return response.data;
+  },
+  deleteOrganization: async (orgId: number) => {
+    const response = await api.delete(`/api/v1/sysadmin/organizations/${orgId}`);
+    return response.data;
   }
 };
 
