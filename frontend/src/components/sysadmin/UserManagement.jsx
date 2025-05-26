@@ -195,7 +195,18 @@ const UserManagement = ({ onShowSnackbar }) => {
             loadUsers();
         } catch (err) {
             logger.error('Error saving user:', err);
-            onShowSnackbar?.('Failed to save user', 'error');
+            
+            // Extract specific error message from API response
+            let errorMessage = 'Failed to save user';
+            if (err.response?.data?.error?.message) {
+                errorMessage = err.response.data.error.message;
+            } else if (err.response?.data?.message) {
+                errorMessage = err.response.data.message;
+            } else if (err.message) {
+                errorMessage = err.message;
+            }
+            
+            onShowSnackbar?.(errorMessage, 'error');
         }
     };
 

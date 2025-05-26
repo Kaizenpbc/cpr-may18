@@ -21,9 +21,10 @@ const pool = new Pool(poolConfig);
 // Initialize database tables
 const initializeDatabase = async () => {
   try {
-    console.log('Starting database initialization...');
+    console.log('🚀 Starting database initialization...');
 
     // Create users table if it doesn't exist
+    console.log('📝 Creating users table...');
     await pool.query(`
       CREATE TABLE IF NOT EXISTS users (
         id SERIAL PRIMARY KEY,
@@ -35,8 +36,10 @@ const initializeDatabase = async () => {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
+    console.log('✅ Users table created successfully');
 
     // Create organizations table if it doesn't exist
+    console.log('🏢 Creating organizations table...');
     await pool.query(`
       CREATE TABLE IF NOT EXISTS organizations (
         id SERIAL PRIMARY KEY,
@@ -48,8 +51,10 @@ const initializeDatabase = async () => {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
+    console.log('✅ Organizations table created successfully');
 
     // Insert default organizations if none exist
+    console.log('📊 Inserting default organizations...');
     await pool.query(`
       INSERT INTO organizations (name, contact_email, contact_phone, address)
       VALUES 
@@ -57,8 +62,10 @@ const initializeDatabase = async () => {
         ('Demo Company', 'demo@company.com', '555-5678', '456 Business Ave')
       ON CONFLICT (name) DO NOTHING;
     `);
+    console.log('✅ Default organizations inserted successfully');
 
     // Add organization_id to users table if it doesn't exist
+    console.log('🔗 Adding organization_id column to users table...');
     await pool.query(`
       DO $$ 
       BEGIN 
@@ -71,8 +78,10 @@ const initializeDatabase = async () => {
         END IF;
       END $$;
     `);
+    console.log('✅ Organization_id column added successfully');
 
     // Create default admin user if it doesn't exist
+    console.log('👤 Creating default admin user...');
     const adminPassword = 'test123';
     const adminPasswordHash = await bcrypt.hash(adminPassword, 10);
     
@@ -81,8 +90,10 @@ const initializeDatabase = async () => {
       VALUES ('admin', 'admin@cpr.com', $1, 'admin')
       ON CONFLICT (username) DO NOTHING;
     `, [adminPasswordHash]);
+    console.log('✅ Admin user created successfully');
 
     // Create default instructor user if it doesn't exist
+    console.log('👨‍🏫 Creating default instructor user...');
     const instructorPassword = 'test123';
     const instructorPasswordHash = await bcrypt.hash(instructorPassword, 10);
     
@@ -91,8 +102,10 @@ const initializeDatabase = async () => {
       VALUES ('instructor', 'instructor@cpr.com', $1, 'instructor')
       ON CONFLICT (username) DO NOTHING;
     `, [instructorPasswordHash]);
+    console.log('✅ Instructor user created successfully');
 
     // Create default organization user if it doesn't exist
+    console.log('🏢 Creating default organization user...');
     const orgPassword = 'test123';
     const orgPasswordHash = await bcrypt.hash(orgPassword, 10);
     
@@ -101,8 +114,10 @@ const initializeDatabase = async () => {
       VALUES ('orguser', 'org@cpr.com', $1, 'organization', 1)
       ON CONFLICT (username) DO NOTHING;
     `, [orgPasswordHash]);
+    console.log('✅ Organization user created successfully');
 
     // Create default accountant user if it doesn't exist
+    console.log('💰 Creating default accountant user...');
     const accountantPassword = 'test123';
     const accountantPasswordHash = await bcrypt.hash(accountantPassword, 10);
     
@@ -111,6 +126,7 @@ const initializeDatabase = async () => {
       VALUES ('accountant', 'accountant@cpr.com', $1, 'accountant')
       ON CONFLICT (username) DO NOTHING;
     `, [accountantPasswordHash]);
+    console.log('✅ Accountant user created successfully');
 
     // Create class_types table if it doesn't exist
     await pool.query(`
@@ -136,26 +152,134 @@ const initializeDatabase = async () => {
     `);
 
     // Create course_requests table if it doesn't exist
+    console.log('📋 Creating course_requests table...');
     await pool.query(`
       CREATE TABLE IF NOT EXISTS course_requests (
         id SERIAL PRIMARY KEY,
         organization_id INTEGER NOT NULL REFERENCES organizations(id),
         course_type_id INTEGER NOT NULL REFERENCES class_types(id),
         date_requested DATE NOT NULL,
-        preferred_date DATE,
+        scheduled_date DATE,
         location VARCHAR(255) NOT NULL,
         registered_students INTEGER NOT NULL DEFAULT 0,
         notes TEXT,
         status VARCHAR(50) NOT NULL DEFAULT 'pending',
         instructor_id INTEGER REFERENCES users(id),
-        scheduled_date DATE,
-        scheduled_start_time TIME,
-        scheduled_end_time TIME,
+        confirmed_date DATE,
+        confirmed_start_time TIME,
+        confirmed_end_time TIME,
         completed_at TIMESTAMP WITH TIME ZONE,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
+    console.log('✅ Course_requests table created successfully');
+
+    // Migrate existing database: rename preferred_date to scheduled_date
+    console.log('🔄 Migrating date fields...');
+    await pool.query(`
+      DO $$ 
+      BEGIN 
+        -- Add scheduled_date if it doesn't exist
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'course_requests' AND column_name = 'scheduled_date'
+        ) THEN 
+          ALTER TABLE course_requests ADD COLUMN scheduled_date DATE;
+        END IF;
+
+        -- Add confirmed_date columns if they don't exist
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'course_requests' AND column_name = 'confirmed_date'
+        ) THEN 
+          ALTER TABLE course_requests ADD COLUMN confirmed_date DATE;
+        END IF;
+
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'course_requests' AND column_name = 'confirmed_start_time'
+        ) THEN 
+          ALTER TABLE course_requests ADD COLUMN confirmed_start_time TIME;
+        END IF;
+
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'course_requests' AND column_name = 'confirmed_end_time'
+        ) THEN 
+          ALTER TABLE course_requests ADD COLUMN confirmed_end_time TIME;
+        END IF;
+
+        -- Add completed_at if it doesn't exist
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'course_requests' AND column_name = 'completed_at'
+        ) THEN 
+          ALTER TABLE course_requests ADD COLUMN completed_at TIMESTAMP WITH TIME ZONE;
+        END IF;
+      END $$;
+    `);
+
+    // Only migrate data if old columns exist
+    console.log('🔄 Migrating data from old columns if they exist...');
+    await pool.query(`
+      DO $$ 
+      BEGIN 
+        -- Copy preferred_date to scheduled_date if preferred_date column exists
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'course_requests' AND column_name = 'preferred_date'
+        ) THEN 
+          UPDATE course_requests 
+          SET scheduled_date = preferred_date 
+          WHERE scheduled_date IS NULL AND preferred_date IS NOT NULL;
+        END IF;
+
+        -- Move old scheduled fields to confirmed fields if they exist
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'course_requests' AND column_name = 'scheduled_start_time'
+        ) THEN 
+          UPDATE course_requests 
+          SET confirmed_start_time = scheduled_start_time,
+              confirmed_end_time = scheduled_end_time
+          WHERE confirmed_start_time IS NULL 
+            AND scheduled_start_time IS NOT NULL 
+            AND instructor_id IS NOT NULL;
+        END IF;
+      END $$;
+    `);
+
+    // Clean up old columns if they exist
+    console.log('🧹 Cleaning up old columns...');
+    await pool.query(`
+      DO $$ 
+      BEGIN 
+        -- Drop preferred_date if it exists
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'course_requests' AND column_name = 'preferred_date'
+        ) THEN 
+          ALTER TABLE course_requests DROP COLUMN preferred_date;
+        END IF;
+
+        -- Drop old scheduled columns if they exist (since they're now confirmed columns)
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'course_requests' AND column_name = 'scheduled_start_time'
+        ) THEN 
+          ALTER TABLE course_requests DROP COLUMN scheduled_start_time;
+        END IF;
+
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'course_requests' AND column_name = 'scheduled_end_time'
+        ) THEN 
+          ALTER TABLE course_requests DROP COLUMN scheduled_end_time;
+        END IF;
+      END $$;
+    `);
+    console.log('✅ Date field migration completed');
 
     // Create classes table if it doesn't exist
     await pool.query(`
@@ -189,6 +313,27 @@ const initializeDatabase = async () => {
       );
     `);
 
+    // Add status column to instructor_availability if it doesn't exist
+    console.log('🔄 Ensuring status column exists in instructor_availability...');
+    await pool.query(`
+      DO $$ 
+      BEGIN 
+        -- Add status column if it doesn't exist
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'instructor_availability' AND column_name = 'status'
+        ) THEN 
+          ALTER TABLE instructor_availability ADD COLUMN status VARCHAR(20) DEFAULT 'available';
+        END IF;
+
+        -- Update any NULL status values to 'available'
+        UPDATE instructor_availability 
+        SET status = 'available' 
+        WHERE status IS NULL;
+      END $$;
+    `);
+    console.log('✅ Status column migration completed');
+
     // Create enrollments table if it doesn't exist
     await pool.query(`
       CREATE TABLE IF NOT EXISTS enrollments (
@@ -219,15 +364,17 @@ const initializeDatabase = async () => {
       );
     `);
 
-    console.log('Database tables initialized successfully');
+    console.log('🎉 [DATABASE SUCCESS] All database tables initialized successfully!');
+    console.log('📊 [DATABASE INFO] Database schema setup completed');
+    console.log('✅ [DATABASE READY] Database is ready for operations');
   } catch (error) {
     console.error('Error initializing database:', error);
     throw error;
   }
 };
 
-// Initialize database on startup
-initializeDatabase().catch(console.error);
+// Database initialization will be called explicitly from index.ts
+// initializeDatabase().catch(console.error);
 
 // Custom error class for database operations
 class DatabaseError extends Error {

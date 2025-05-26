@@ -11,8 +11,12 @@ import { authenticateToken } from './middleware/authMiddleware';
 import path from 'path';
 import instructorRoutes from './routes/instructor';
 import holidaysRoutes from './routes/holidays';
+import { initializeDatabase } from './config/database';
+
+console.log('🚀 [STARTUP] Starting backend server initialization...');
 
 // Load environment variables
+console.log('📝 [STARTUP] Loading environment variables...');
 const result = dotenv.config();
 console.log('Environment loading result:', result);
 console.log('Current working directory:', process.cwd());
@@ -24,8 +28,10 @@ console.log('Environment variables:', {
   DB_NAME: process.env.DB_NAME
 });
 
+console.log('🔧 [STARTUP] Creating Express app...');
 const app = express();
 
+console.log('🌐 [STARTUP] Setting up CORS configuration...');
 // CORS configuration
 app.use(cors({
   origin: process.env.NODE_ENV === 'production' 
@@ -39,6 +45,7 @@ app.use(cors({
   optionsSuccessStatus: 204
 }));
 
+console.log('📦 [STARTUP] Setting up middleware...');
 // Body parsing middleware
 app.use(express.json());
 app.use(cookieParser());
@@ -58,25 +65,34 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   next(err);
 });
 
-// Apply rate limiting - COMMENTED OUT FOR TESTING
-// app.use('/api', apiLimiter);
-// app.use('/api/v1/auth/login', authLimiter);
-// app.use('/api/v1/auth/register', registerLimiter);
-
+console.log('🛣️ [STARTUP] Setting up routes...');
 // Routes
-app.use('/api/v1/auth', authRoutes);
-app.use('/api/v1', v1Routes);
+try {
+  console.log('   - Setting up auth routes...');
+  app.use('/api/v1/auth', authRoutes);
+  
+  console.log('   - Setting up v1 routes...');
+  app.use('/api/v1', v1Routes);
 
-// Protected routes
-app.use('/api/v1/protected', authenticateToken);
-app.use('/api/v1/instructor', authenticateToken, instructorRoutes);
-app.use('/api/v1/holidays', authenticateToken, holidaysRoutes);
+  console.log('   - Setting up protected routes...');
+  // Protected routes
+  app.use('/api/v1/protected', authenticateToken);
+  app.use('/api/v1/instructor', authenticateToken, instructorRoutes);
+  app.use('/api/v1/holidays', authenticateToken, holidaysRoutes);
 
+  console.log('✅ [STARTUP] All routes configured successfully');
+} catch (error) {
+  console.error('❌ [STARTUP ERROR] Failed to set up routes:', error);
+  process.exit(1);
+}
+
+console.log('🏥 [STARTUP] Setting up health check...');
 // Health check
 app.get('/health', (_req: Request, res: Response) => {
   res.json({ status: 'ok' });
 });
 
+console.log('📊 [STARTUP] Setting up request logging middleware...');
 // Add comprehensive request logging middleware
 app.use((req: Request, res: Response, next: NextFunction) => {
   console.log(`[REQUEST] ${new Date().toISOString()}`);
@@ -102,6 +118,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
   next();
 });
 
+console.log('📋 [STARTUP] Listing all registered routes...');
 // List all registered routes
 console.log('[ROUTES] All registered routes:');
 function printRoutes(path: string, layer: any) {
@@ -116,12 +133,18 @@ function printRoutes(path: string, layer: any) {
   }
 }
 
-app._router.stack.forEach((layer: any) => {
-  if (layer.name === 'router') {
-    printRoutes('', layer);
-  }
-});
+try {
+  app._router.stack.forEach((layer: any) => {
+    if (layer.name === 'router') {
+      printRoutes('', layer);
+    }
+  });
+  console.log('✅ [STARTUP] Route listing completed');
+} catch (error) {
+  console.error('❌ [STARTUP ERROR] Failed to list routes:', error);
+}
 
+console.log('🚫 [STARTUP] Setting up 404 handler...');
 // 404 handler for unmatched routes
 app.use((req: Request, res: Response) => {
   console.error(`[404 ERROR] Route not found: ${req.method} ${req.originalUrl}`);
@@ -140,11 +163,44 @@ app.use((req: Request, res: Response) => {
   });
 });
 
+console.log('⚠️ [STARTUP] Setting up error handler...');
 // Error handling
 app.use(errorHandler);
 
 const PORT = process.env.PORT || 3001;
 
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-}); 
+console.log(`🚀 [STARTUP] Starting server on port ${PORT}...`);
+try {
+  const server = app.listen(PORT, async () => {
+    console.log(`✅ [SUCCESS] Server running on port ${PORT}`);
+    console.log(`🌐 [SUCCESS] Backend available at: http://localhost:${PORT}`);
+    console.log(`🏥 [SUCCESS] Health check: http://localhost:${PORT}/health`);
+    console.log(`📡 [SUCCESS] API base: http://localhost:${PORT}/api/v1`);
+    
+    // Initialize database after server starts
+    console.log('🗄️ [STARTUP] Initializing database...');
+    try {
+      await initializeDatabase();
+      console.log('✅ [DATABASE SUCCESS] Database initialization completed successfully!');
+      console.log('🎉 [SUCCESS] Backend startup completed successfully!');
+      console.log('🚀 [READY] Backend is ready to accept requests!');
+    } catch (error) {
+      console.error('❌ [DATABASE ERROR] Failed to initialize database:', error);
+      console.error('💥 [CRITICAL] Backend may not function properly without database!');
+      console.error('🔧 [SUGGESTION] Check database connection and credentials');
+    }
+  });
+
+  server.on('error', (error: any) => {
+    console.error('❌ [SERVER ERROR] Failed to start server:', error);
+    if (error.code === 'EADDRINUSE') {
+      console.error(`❌ [SERVER ERROR] Port ${PORT} is already in use`);
+      console.error('💡 [SUGGESTION] Try stopping other processes or use a different port');
+    }
+    process.exit(1);
+  });
+
+} catch (error) {
+  console.error('❌ [STARTUP ERROR] Failed to start server:', error);
+  process.exit(1);
+} 

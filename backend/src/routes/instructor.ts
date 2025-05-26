@@ -46,10 +46,10 @@ router.get('/classes', async (req, res) => {
              LEFT JOIN class_types ct ON c.type_id = ct.id 
              LEFT JOIN course_requests cr ON cr.instructor_id = c.instructor_id 
                 AND cr.status = 'confirmed'
-                AND DATE(cr.scheduled_date) = DATE(c.date)
+                AND DATE(cr.confirmed_date) = DATE(c.date)
                 AND cr.course_type_id = c.type_id
              LEFT JOIN organizations o ON cr.organization_id = o.id
-             WHERE c.instructor_id = $1 AND c.date >= CURRENT_DATE 
+             WHERE c.instructor_id = $1 AND c.date >= CURRENT_DATE AND c.status != 'completed'
              ORDER BY c.date, c.start_time`,
             [instructorId]
         );
@@ -86,7 +86,7 @@ router.get('/classes/upcoming', async (req, res) => {
             `SELECT c.id, c.date::text, c.start_time::text, c.end_time::text, c.status, ct.name as type
              FROM classes c 
              LEFT JOIN class_types ct ON c.type_id = ct.id 
-             WHERE c.instructor_id = $1 AND c.date >= CURRENT_DATE 
+             WHERE c.instructor_id = $1 AND c.date >= CURRENT_DATE AND c.status != 'completed'
              ORDER BY c.date, c.start_time LIMIT 5`,
             [instructorId]
         );
@@ -116,7 +116,12 @@ router.get('/availability', async (req, res) => {
         
         console.log('[Debug] Fetching availability for instructor ID:', instructorId);
         const result = await pool.query(
-            'SELECT id, instructor_id, date::text, status, created_at, updated_at FROM instructor_availability WHERE instructor_id = $1 AND date >= CURRENT_DATE ORDER BY date',
+            `SELECT id, instructor_id, date::text, status, created_at, updated_at 
+             FROM instructor_availability 
+             WHERE instructor_id = $1 
+             AND date >= CURRENT_DATE 
+             AND (status = 'available' OR status IS NULL)
+             ORDER BY date`,
             [instructorId]
         );
         
@@ -187,7 +192,7 @@ router.get('/schedule', async (req, res) => {
                     ct.name as type, c.max_students, c.current_students 
              FROM classes c 
              LEFT JOIN class_types ct ON c.type_id = ct.id 
-             WHERE c.instructor_id = $1 AND c.date >= CURRENT_DATE 
+             WHERE c.instructor_id = $1 AND c.date >= CURRENT_DATE AND c.status != 'completed'
              ORDER BY c.date, c.start_time`,
             [instructorId]
         );
@@ -239,10 +244,10 @@ router.get('/classes/today', async (req, res) => {
              LEFT JOIN class_types ct ON c.type_id = ct.id 
              LEFT JOIN course_requests cr ON cr.instructor_id = c.instructor_id 
                 AND cr.status = 'confirmed'
-                AND DATE(cr.scheduled_date) = DATE(c.date)
+                AND DATE(cr.confirmed_date) = DATE(c.date)
                 AND cr.course_type_id = c.type_id
              LEFT JOIN organizations o ON cr.organization_id = o.id
-             WHERE c.instructor_id = $1 AND DATE(c.date) = CURRENT_DATE 
+             WHERE c.instructor_id = $1 AND DATE(c.date) = CURRENT_DATE AND c.status != 'completed'
              ORDER BY c.start_time`,
             [instructorId]
         );
@@ -298,7 +303,7 @@ router.get('/classes/:classId/students', async (req, res) => {
             `SELECT cr.id as course_request_id
              FROM course_requests cr
              JOIN classes c ON cr.instructor_id = c.instructor_id 
-                AND DATE(cr.scheduled_date) = DATE(c.date)
+                AND DATE(cr.confirmed_date) = DATE(c.date)
                 AND cr.course_type_id = c.type_id
              WHERE c.id = $1 AND c.instructor_id = $2`,
             [classId, instructorId]
@@ -374,7 +379,7 @@ router.post('/classes/:classId/students', async (req, res) => {
             `SELECT cr.id as course_request_id
              FROM course_requests cr
              JOIN classes c ON cr.instructor_id = c.instructor_id 
-                AND DATE(cr.scheduled_date) = DATE(c.date)
+                AND DATE(cr.confirmed_date) = DATE(c.date)
                 AND cr.course_type_id = c.type_id
              WHERE c.id = $1 AND c.instructor_id = $2`,
             [classId, instructorId]
@@ -442,7 +447,7 @@ router.put('/classes/:classId/students/:studentId/attendance', async (req, res) 
             `SELECT cr.id as course_request_id
              FROM course_requests cr
              JOIN classes c ON cr.instructor_id = c.instructor_id 
-                AND DATE(cr.scheduled_date) = DATE(c.date)
+                AND DATE(cr.confirmed_date) = DATE(c.date)
                 AND cr.course_type_id = c.type_id
              WHERE c.id = $1 AND c.instructor_id = $2`,
             [classId, instructorId]
@@ -579,7 +584,7 @@ router.put('/classes/:classId/complete', async (req, res) => {
              FROM course_requests cr
              JOIN organizations o ON cr.organization_id = o.id
              JOIN classes c ON cr.instructor_id = c.instructor_id 
-                AND DATE(cr.scheduled_date) = DATE(c.date)
+                AND DATE(cr.confirmed_date) = DATE(c.date)
                 AND cr.course_type_id = c.type_id
              WHERE c.id = $1 AND c.instructor_id = $2`,
             [classId, instructorId]
@@ -627,6 +632,23 @@ router.put('/classes/:classId/complete', async (req, res) => {
             );
         }
         
+        // Update instructor availability status to 'completed' instead of deleting
+        // This maintains the audit trail and prevents double-booking
+        const availabilityUpdateResult = await client.query(
+            `UPDATE instructor_availability 
+             SET status = 'completed', 
+                 updated_at = $1
+             WHERE instructor_id = $2 AND date = $3
+             RETURNING id, status`,
+            [completionTime, instructorId, classData.date]
+        );
+        
+        if (availabilityUpdateResult.rows.length === 0) {
+            console.log(`[Warning] No availability record found to update for instructor ${instructorId} on date ${classData.date}`);
+        } else {
+            console.log(`[Audit] Updated availability record ${availabilityUpdateResult.rows[0].id} to status '${availabilityUpdateResult.rows[0].status}' for instructor ${instructorId} on date ${classData.date}`);
+        }
+        
         // Create audit log entry for compliance and tracking
         await client.query(
             `INSERT INTO activity_logs (
@@ -660,7 +682,7 @@ router.put('/classes/:classId/complete', async (req, res) => {
              FROM classes c
              LEFT JOIN class_types ct ON c.type_id = ct.id
              LEFT JOIN course_requests cr ON cr.instructor_id = c.instructor_id 
-                AND DATE(cr.scheduled_date) = DATE(c.date)
+                AND DATE(cr.confirmed_date) = DATE(c.date)
                 AND cr.course_type_id = c.type_id
              LEFT JOIN organizations o ON cr.organization_id = o.id
              WHERE c.id = $1`,
@@ -772,7 +794,7 @@ router.get('/classes/completed', async (req, res) => {
              LEFT JOIN class_types ct ON c.type_id = ct.id 
              LEFT JOIN course_requests cr ON cr.instructor_id = c.instructor_id 
                 AND cr.status = 'completed'
-                AND DATE(cr.scheduled_date) = DATE(c.date)
+                AND DATE(cr.confirmed_date) = DATE(c.date)
                 AND cr.course_type_id = c.type_id
              LEFT JOIN organizations o ON cr.organization_id = o.id
              WHERE c.instructor_id = $1 AND c.status = 'completed'

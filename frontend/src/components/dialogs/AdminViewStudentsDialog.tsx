@@ -23,11 +23,38 @@ import {
     Cancel as AbsentIcon,
     HelpOutline as NotMarkedIcon
 } from '@mui/icons-material';
-import { organizationApi } from '../../services/api.ts';
+import { adminApi } from '../../services/api';
 import logger from '../../utils/logger';
 
-const ViewStudentsDialog = ({ open, onClose, courseId }) => {
-    const [students, setStudents] = useState([]);
+interface Student {
+    id: number;
+    course_request_id: number;
+    first_name: string;
+    last_name: string;
+    email?: string;
+    attended?: boolean;
+    attendance_marked?: boolean;
+    created_at?: string;
+}
+
+interface AdminViewStudentsDialogProps {
+    open: boolean;
+    onClose: () => void;
+    courseId: number | null;
+    courseInfo?: {
+        course_type?: string;
+        organization_name?: string;
+        location?: string;
+    };
+}
+
+const AdminViewStudentsDialog: React.FC<AdminViewStudentsDialogProps> = ({ 
+    open, 
+    onClose, 
+    courseId,
+    courseInfo 
+}) => {
+    const [students, setStudents] = useState<Student[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
 
@@ -37,14 +64,14 @@ const ViewStudentsDialog = ({ open, onClose, courseId }) => {
                 setLoading(true);
                 setError('');
                 try {
-                    logger.info(`Fetching students for course: ${courseId}`);
-                    const response = await organizationApi.getCourseStudents(courseId);
+                    logger.info(`[Admin] Fetching students for course: ${courseId}`);
+                    const response = await adminApi.getCourseStudents(courseId);
                     const studentsData = response.data?.data || response.data || [];
-                    logger.info(`Successfully fetched ${studentsData.length} students for course: ${courseId}`);
+                    logger.info(`[Admin] Successfully fetched ${studentsData.length} students for course: ${courseId}`);
                     setStudents(studentsData);
-                } catch (err) {
-                    logger.error('Failed to fetch students:', err);
-                    setError(err.message || 'Failed to fetch students');
+                } catch (err: any) {
+                    logger.error('[Admin] Failed to fetch students:', err);
+                    setError(err.response?.data?.error?.message || err.message || 'Failed to fetch students');
                 } finally {
                     setLoading(false);
                 }
@@ -53,7 +80,7 @@ const ViewStudentsDialog = ({ open, onClose, courseId }) => {
         }
     }, [open, courseId]);
 
-    const formatDate = (dateString) => {
+    const formatDate = (dateString?: string) => {
         if (!dateString) return '';
         try {
             return new Date(dateString).toLocaleDateString();
@@ -62,7 +89,7 @@ const ViewStudentsDialog = ({ open, onClose, courseId }) => {
         }
     };
 
-    const getAttendanceChip = (student) => {
+    const getAttendanceChip = (student: Student) => {
         if (!student.attendance_marked) {
             return (
                 <Chip
@@ -129,6 +156,11 @@ const ViewStudentsDialog = ({ open, onClose, courseId }) => {
                         />
                     )}
                 </Box>
+                {courseInfo && (
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                        {courseInfo.course_type} - {courseInfo.organization_name} - {courseInfo.location}
+                    </Typography>
+                )}
             </DialogTitle>
             <DialogContent dividers>
                 {loading && (
@@ -147,23 +179,18 @@ const ViewStudentsDialog = ({ open, onClose, courseId }) => {
                             No students enrolled
                         </Typography>
                         <Typography variant="body2" color="text.secondary">
-                            Upload a student list using the "Upload Student List" button in the course table.
+                            The organization has not uploaded a student list for this course yet.
                         </Typography>
                     </Box>
                 )}
                 {!loading && !error && students.length > 0 && (
                     <Box>
                         {/* Attendance Summary */}
-                        <Box sx={{ mb: 3, p: 2, bgcolor: 'background.default', borderRadius: 1 }}>
-                            <Typography variant="subtitle1" gutterBottom>
+                        <Box sx={{ mb: 2, p: 2, bgcolor: 'background.default', borderRadius: 1 }}>
+                            <Typography variant="subtitle2" gutterBottom>
                                 Attendance Summary
                             </Typography>
-                            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', mb: 1 }}>
-                                <Chip 
-                                    label={`Total: ${students.length}`} 
-                                    color="primary" 
-                                    size="small" 
-                                />
+                            <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
                                 <Chip 
                                     label={`Present: ${attendanceStats.present}`} 
                                     color="success" 
@@ -178,11 +205,10 @@ const ViewStudentsDialog = ({ open, onClose, courseId }) => {
                                     label={`Not Marked: ${attendanceStats.notMarked}`} 
                                     color="default" 
                                     size="small" 
-                                    variant="outlined"
                                 />
                             </Box>
                             {attendanceStats.marked > 0 && (
-                                <Typography variant="body2" color="text.secondary">
+                                <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
                                     Attendance Rate: {attendanceRate}% ({attendanceStats.present} of {attendanceStats.marked} marked students)
                                 </Typography>
                             )}
@@ -239,4 +265,4 @@ const ViewStudentsDialog = ({ open, onClose, courseId }) => {
     );
 };
 
-export default ViewStudentsDialog; 
+export default AdminViewStudentsDialog; 

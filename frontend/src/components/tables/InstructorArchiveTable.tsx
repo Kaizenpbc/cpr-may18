@@ -8,10 +8,9 @@ import {
     CheckCircle as CompletedIcon,
     Person as PersonIcon
 } from '@mui/icons-material';
-import { Course } from '../../types/instructor';
 
 interface InstructorArchiveTableProps {
-    courses: Course[];
+    courses: any[];
 }
 
 /**
@@ -22,11 +21,29 @@ const InstructorArchiveTable: React.FC<InstructorArchiveTableProps> = ({ courses
     const formatDate = (dateString?: string): string => {
         if (!dateString) return '-';
         try {
-            return new Date(dateString).toLocaleDateString('en-US', {
-                year: 'numeric',
-                month: 'short',
-                day: 'numeric'
-            });
+            // Handle date strings that might have timezone issues
+            // If the date string contains 'T', it's already in ISO format
+            if (dateString.includes('T')) {
+                // Extract just the date part to avoid timezone conversion
+                const datePart = dateString.split('T')[0];
+                const [year, month, day] = datePart.split('-');
+                // Create date in local timezone to avoid UTC conversion
+                const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                return date.toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                });
+            } else {
+                // For dates without time component, parse directly
+                const [year, month, day] = dateString.split('-');
+                const date = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+                return date.toLocaleDateString('en-US', {
+                    year: 'numeric',
+                    month: 'short',
+                    day: 'numeric'
+                });
+            }
         } catch (error) {
             return dateString;
         }
@@ -111,25 +128,25 @@ const InstructorArchiveTable: React.FC<InstructorArchiveTableProps> = ({ courses
                                     >
                                         <TableCell sx={{ backgroundColor: rowColor }}>
                                             <Typography variant="body2" fontWeight="medium">
-                                                {formatDate(course.start_date)}
+                                                {formatDate(course.datescheduled)}
                                             </Typography>
                                         </TableCell>
                                         
                                         <TableCell sx={{ backgroundColor: rowColor }}>
                                             <Typography variant="body2">
-                                                {course.course_type || 'CPR Class'}
+                                                {course.coursetypename || 'CPR Class'}
                                             </Typography>
                                         </TableCell>
                                         
                                         <TableCell sx={{ backgroundColor: rowColor }}>
                                             <Typography variant="body2">
-                                                {course.organization_name || 'Unassigned'}
+                                                {course.organizationname || 'Unassigned'}
                                             </Typography>
                                         </TableCell>
                                         
                                         <TableCell sx={{ backgroundColor: rowColor }}>
                                             <Typography variant="body2">
-                                                {course.location_name || 'TBD'}
+                                                {course.location || 'TBD'}
                                             </Typography>
                                         </TableCell>
                                         
@@ -143,17 +160,17 @@ const InstructorArchiveTable: React.FC<InstructorArchiveTableProps> = ({ courses
                                             <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
                                                 <PersonIcon fontSize="small" color="action" />
                                                 <Typography variant="body2">
-                                                    {course.current_students || 0}
+                                                    {course.studentsattended || 0}
                                                 </Typography>
                                                 <Typography variant="body2" color="text.secondary">
-                                                    /{course.max_students || 0}
+                                                    /{course.studentsregistered || 0}
                                                 </Typography>
                                             </Box>
                                         </TableCell>
                                         
                                         <TableCell sx={{ backgroundColor: rowColor }}>
                                             <Typography variant="body2" color="text.secondary">
-                                                {formatDate(course.updated_at)}
+                                                {formatDate(course.date_completed || course.completion_date)}
                                             </Typography>
                                         </TableCell>
                                         

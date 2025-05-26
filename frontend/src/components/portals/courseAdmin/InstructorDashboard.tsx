@@ -71,7 +71,9 @@ const InstructorDashboard: React.FC = () => {
         api.get(`/api/v1/admin/dashboard-summary?month=${selectedMonth}`)
       ]);
       
-      setInstructorStats(statsResponse.data.data);
+      // Ensure instructorStats is always an array
+      const statsData = statsResponse.data.data;
+      setInstructorStats(Array.isArray(statsData) ? statsData : []);
       setDashboardSummary(summaryResponse.data.data);
     } catch (err) {
       setError('Failed to fetch dashboard data');

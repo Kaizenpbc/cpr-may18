@@ -7,7 +7,7 @@ import logger from '../../utils/logger';
 const ScheduleCourseForm = ({ onCourseScheduled }) => {
     const { user } = useAuth();
     const [formData, setFormData] = useState({
-        preferredDate: '',
+        scheduledDate: '',
         location: '',
         courseTypeId: '',
         registeredStudents: '',
@@ -58,8 +58,8 @@ const ScheduleCourseForm = ({ onCourseScheduled }) => {
         logger.info('[handleSubmit] Form submitted with data:', formData);
 
         // Basic validation
-        if (!formData.preferredDate || !formData.location || !formData.courseTypeId || formData.registeredStudents === '') {
-            setError('Please fill in all required fields (Preferred Date, Location, Course Type, # Students).');
+        if (!formData.scheduledDate || !formData.location || !formData.courseTypeId || formData.registeredStudents === '') {
+            setError('Please fill in all required fields (Scheduled Date, Location, Course Type, # Students).');
             setIsSubmitting(false);
             return;
         }
@@ -79,7 +79,7 @@ const ScheduleCourseForm = ({ onCourseScheduled }) => {
                 setSuccessMessage(message);
                 // Clear form
                 setFormData({
-                    preferredDate: '',
+                    scheduledDate: '',
                     location: '',
                     courseTypeId: '',
                     registeredStudents: '',
@@ -154,17 +154,17 @@ const ScheduleCourseForm = ({ onCourseScheduled }) => {
                             helperText="Automatically set to today's date when request is submitted"
                         />
                     </Grid>
-                    {/* Preferred Course Date */}
+                    {/* Scheduled Course Date */}
                     <Grid item xs={12} sm={6}>
                         <TextField
                             required
                             fullWidth
-                            id="preferredDate"
-                            label="Preferred Course Date"
-                            name="preferredDate"
+                            id="scheduledDate"
+                            label="Scheduled Course Date"
+                            name="scheduledDate"
                             type="date" 
                             InputLabelProps={{ shrink: true }}
-                            value={formData.preferredDate}
+                            value={formData.scheduledDate}
                             onChange={handleChange}
                             disabled={isSubmitting}
                             helperText="When would you like the course to be scheduled?"

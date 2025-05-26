@@ -12,6 +12,46 @@ const router = Router();
 
 console.log('DB_PASSWORD:', process.env.DB_PASSWORD);
 
+// Get available instructors for a specific date (needs to be before auth middleware)
+router.get('/instructors/available/:date', authenticateToken, asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const { date } = req.params;
+    
+    if (!date) {
+      throw new AppError(400, errorCodes.VALIDATION_ERROR, 'Date parameter is required');
+    }
+
+    console.log('[Available Instructors] Checking for date:', date);
+
+    // Simple query: Get all instructors who have marked themselves available for this date
+    const result = await pool.query(
+      `SELECT DISTINCT
+        u.id, 
+        u.username as instructor_name, 
+        u.email,
+        u.first_name,
+        u.last_name,
+        'Available' as availability_status
+       FROM users u
+       INNER JOIN instructor_availability ia ON u.id = ia.instructor_id 
+         AND ia.date::date = $1::date
+         AND ia.status = 'available'
+       WHERE u.role = 'instructor' 
+         AND u.status = 'active'
+       ORDER BY u.username`,
+      [date]
+    );
+    
+    console.log('[Available Instructors] Found:', result.rows.length, 'instructors for date:', date);
+    console.log('[Available Instructors] Results:', result.rows);
+    
+    return res.json(ApiResponseBuilder.success(result.rows));
+  } catch (error: any) {
+    console.error('Error fetching available instructors:', error);
+    throw new AppError(500, errorCodes.DB_QUERY_ERROR, 'Failed to fetch available instructors');
+  }
+}));
+
 // Protected routes
 router.use('/dashboard', authenticateToken);
 router.use('/organization', authenticateToken);
@@ -250,23 +290,23 @@ router.get('/course-types', asyncHandler(async (_req: Request, res: Response) =>
 // Organization course request endpoints
 router.post('/organization/course-request', asyncHandler(async (req: Request, res: Response) => {
   try {
-    const { preferredDate, location, courseTypeId, registeredStudents, notes } = req.body;
+    const { scheduledDate, location, courseTypeId, registeredStudents, notes } = req.body;
     const organizationId = req.user?.organizationId;
 
     if (!organizationId) {
       throw new AppError(400, errorCodes.VALIDATION_ERROR, 'User must be associated with an organization');
     }
 
-    if (!preferredDate || !location || !courseTypeId || registeredStudents === undefined) {
+    if (!scheduledDate || !location || !courseTypeId || registeredStudents === undefined) {
       throw new AppError(400, errorCodes.VALIDATION_ERROR, 'Missing required fields');
     }
 
     const result = await pool.query(
       `INSERT INTO course_requests 
-       (organization_id, course_type_id, date_requested, preferred_date, location, registered_students, notes, status) 
+       (organization_id, course_type_id, date_requested, scheduled_date, location, registered_students, notes, status) 
        VALUES ($1, $2, CURRENT_DATE, $3, $4, $5, $6, 'pending') 
        RETURNING *`,
-      [organizationId, courseTypeId, preferredDate, location, registeredStudents, notes]
+      [organizationId, courseTypeId, scheduledDate, location, registeredStudents, notes]
     );
 
     return res.json({
@@ -293,14 +333,14 @@ router.get('/organization/courses', asyncHandler(async (req: Request, res: Respo
       `SELECT 
         cr.id,
         cr.date_requested,
-        cr.preferred_date,
+        cr.scheduled_date,
         cr.location,
         cr.registered_students,
         cr.notes,
         cr.status,
-        cr.scheduled_date,
-        cr.scheduled_start_time,
-        cr.scheduled_end_time,
+        cr.confirmed_date,
+        cr.confirmed_start_time,
+        cr.confirmed_end_time,
         cr.created_at,
         ct.name as course_type,
         u.username as instructor_name,
@@ -392,15 +432,15 @@ router.get('/organization/analytics/course-requests', asyncHandler(async (req: R
     // Seasonal Patterns (by month of year)
     const seasonalPatterns = await pool.query(`
       SELECT 
-        EXTRACT(MONTH FROM cr.preferred_date) as month_number,
-        TO_CHAR(DATE_TRUNC('month', cr.preferred_date), 'Month') as month_name,
+        EXTRACT(MONTH FROM cr.scheduled_date) as month_number,
+        TO_CHAR(DATE_TRUNC('month', cr.scheduled_date), 'Month') as month_name,
         COUNT(cr.id) as request_count,
-        AVG(EXTRACT(DAY FROM (cr.preferred_date - cr.created_at::date))) as avg_lead_time_days
+        AVG(EXTRACT(DAY FROM (cr.scheduled_date - cr.created_at::date))) as avg_lead_time_days
       FROM course_requests cr
       WHERE cr.organization_id = $1
         AND cr.created_at >= CURRENT_DATE - INTERVAL '${timeframe} months'
-        AND cr.preferred_date IS NOT NULL
-      GROUP BY EXTRACT(MONTH FROM cr.preferred_date), TO_CHAR(DATE_TRUNC('month', cr.preferred_date), 'Month')
+        AND cr.scheduled_date IS NOT NULL
+      GROUP BY EXTRACT(MONTH FROM cr.scheduled_date), TO_CHAR(DATE_TRUNC('month', cr.scheduled_date), 'Month')
       ORDER BY month_number
     `, [organizationId]);
 
@@ -408,25 +448,25 @@ router.get('/organization/analytics/course-requests', asyncHandler(async (req: R
     const leadTimeAnalysis = await pool.query(`
       SELECT 
         CASE 
-          WHEN EXTRACT(DAY FROM (cr.preferred_date - cr.created_at::date)) <= 7 THEN '0-7 days'
-          WHEN EXTRACT(DAY FROM (cr.preferred_date - cr.created_at::date)) <= 14 THEN '8-14 days'
-          WHEN EXTRACT(DAY FROM (cr.preferred_date - cr.created_at::date)) <= 30 THEN '15-30 days'
-          WHEN EXTRACT(DAY FROM (cr.preferred_date - cr.created_at::date)) <= 60 THEN '31-60 days'
+          WHEN EXTRACT(DAY FROM (cr.scheduled_date - cr.created_at::date)) <= 7 THEN '0-7 days'
+          WHEN EXTRACT(DAY FROM (cr.scheduled_date - cr.created_at::date)) <= 14 THEN '8-14 days'
+          WHEN EXTRACT(DAY FROM (cr.scheduled_date - cr.created_at::date)) <= 30 THEN '15-30 days'
+          WHEN EXTRACT(DAY FROM (cr.scheduled_date - cr.created_at::date)) <= 60 THEN '31-60 days'
           ELSE '60+ days'
         END as lead_time_range,
         COUNT(cr.id) as request_count,
-        ROUND(AVG(EXTRACT(DAY FROM (cr.preferred_date - cr.created_at::date))), 1) as avg_days
+        ROUND(AVG(EXTRACT(DAY FROM (cr.scheduled_date - cr.created_at::date))), 1) as avg_days
       FROM course_requests cr
       WHERE cr.organization_id = $1
         AND cr.created_at >= CURRENT_DATE - INTERVAL '${timeframe} months'
-        AND cr.preferred_date IS NOT NULL
-        AND cr.preferred_date >= cr.created_at::date
+        AND cr.scheduled_date IS NOT NULL
+        AND cr.scheduled_date >= cr.created_at::date
       GROUP BY 
         CASE 
-          WHEN EXTRACT(DAY FROM (cr.preferred_date - cr.created_at::date)) <= 7 THEN '0-7 days'
-          WHEN EXTRACT(DAY FROM (cr.preferred_date - cr.created_at::date)) <= 14 THEN '8-14 days'
-          WHEN EXTRACT(DAY FROM (cr.preferred_date - cr.created_at::date)) <= 30 THEN '15-30 days'
-          WHEN EXTRACT(DAY FROM (cr.preferred_date - cr.created_at::date)) <= 60 THEN '31-60 days'
+          WHEN EXTRACT(DAY FROM (cr.scheduled_date - cr.created_at::date)) <= 7 THEN '0-7 days'
+          WHEN EXTRACT(DAY FROM (cr.scheduled_date - cr.created_at::date)) <= 14 THEN '8-14 days'
+          WHEN EXTRACT(DAY FROM (cr.scheduled_date - cr.created_at::date)) <= 30 THEN '15-30 days'
+          WHEN EXTRACT(DAY FROM (cr.scheduled_date - cr.created_at::date)) <= 60 THEN '31-60 days'
           ELSE '60+ days'
         END
       ORDER BY 
@@ -612,6 +652,7 @@ router.get('/courses/pending', asyncHandler(async (_req: Request, res: Response)
       `SELECT 
         cr.id,
         cr.date_requested,
+        cr.scheduled_date,
         cr.location,
         cr.registered_students,
         cr.notes,
@@ -642,13 +683,14 @@ router.get('/courses/confirmed', asyncHandler(async (_req: Request, res: Respons
       `SELECT 
         cr.id,
         cr.date_requested,
+        cr.scheduled_date,
         cr.location,
         cr.registered_students,
         cr.notes,
         cr.status,
-        cr.scheduled_date,
-        cr.scheduled_start_time,
-        cr.scheduled_end_time,
+        cr.confirmed_date,
+        cr.confirmed_start_time,
+        cr.confirmed_end_time,
         cr.created_at,
         ct.name as course_type,
         o.name as organization_name,
@@ -668,7 +710,7 @@ router.get('/courses/confirmed', asyncHandler(async (_req: Request, res: Respons
          GROUP BY course_request_id
        ) cs ON cr.id = cs.course_request_id
        WHERE cr.status = 'confirmed'
-       ORDER BY cr.scheduled_date ASC, cr.scheduled_start_time ASC`
+       ORDER BY cr.confirmed_date ASC, cr.confirmed_start_time ASC`
     );
 
     // Update registered_students with actual count if students have been uploaded
@@ -691,13 +733,14 @@ router.get('/courses/completed', asyncHandler(async (_req: Request, res: Respons
       `SELECT 
         cr.id,
         cr.date_requested,
+        cr.scheduled_date,
         cr.location,
         cr.registered_students,
         cr.notes,
         cr.status,
-        cr.scheduled_date,
-        cr.scheduled_start_time,
-        cr.scheduled_end_time,
+        cr.confirmed_date,
+        cr.confirmed_start_time,
+        cr.confirmed_end_time,
         cr.completed_at,
         cr.created_at,
         ct.name as course_type,
@@ -770,12 +813,12 @@ router.put('/courses/:id/cancel', asyncHandler(async (req: Request, res: Respons
       const courseRequest = courseUpdateResult.rows[0];
 
       // If instructor was assigned, remove the corresponding class and restore availability
-      if (courseRequest.instructor_id && courseRequest.scheduled_date) {
+      if (courseRequest.instructor_id && courseRequest.confirmed_date) {
         // Remove the class from instructor's schedule
         await client.query(
           `DELETE FROM classes 
            WHERE instructor_id = $1 AND date = $2`,
-          [courseRequest.instructor_id, courseRequest.scheduled_date]
+          [courseRequest.instructor_id, courseRequest.confirmed_date]
         );
 
         // Restore instructor availability for that date
@@ -783,7 +826,7 @@ router.put('/courses/:id/cancel', asyncHandler(async (req: Request, res: Respons
           `INSERT INTO instructor_availability (instructor_id, date, status)
            VALUES ($1, $2, 'available')
            ON CONFLICT (instructor_id, date) DO UPDATE SET status = 'available'`,
-          [courseRequest.instructor_id, courseRequest.scheduled_date]
+          [courseRequest.instructor_id, courseRequest.confirmed_date]
         );
       }
 
@@ -836,18 +879,18 @@ router.put('/courses/:id/schedule', asyncHandler(async (req: Request, res: Respo
       const currentCourse = currentCourseResult.rows[0];
 
       // Update course request with new schedule and optionally new instructor
-      const updateFields = ['scheduled_date = $2', 'updated_at = CURRENT_TIMESTAMP'];
+      const updateFields = ['confirmed_date = $2', 'updated_at = CURRENT_TIMESTAMP'];
       const updateValues = [id, scheduledDate];
       let paramIndex = 3;
 
       if (startTime) {
-        updateFields.push(`scheduled_start_time = $${paramIndex}`);
+        updateFields.push(`confirmed_start_time = $${paramIndex}`);
         updateValues.push(startTime);
         paramIndex++;
       }
 
       if (endTime) {
-        updateFields.push(`scheduled_end_time = $${paramIndex}`);
+        updateFields.push(`confirmed_end_time = $${paramIndex}`);
         updateValues.push(endTime);
         paramIndex++;
       }
@@ -874,7 +917,7 @@ router.put('/courses/:id/schedule', asyncHandler(async (req: Request, res: Respo
         await client.query(
           `DELETE FROM classes 
            WHERE instructor_id = $1 AND date = $2`,
-          [currentCourse.instructor_id, currentCourse.scheduled_date]
+          [currentCourse.instructor_id, currentCourse.confirmed_date]
         );
 
         // Restore old instructor's availability
@@ -882,7 +925,7 @@ router.put('/courses/:id/schedule', asyncHandler(async (req: Request, res: Respo
           `INSERT INTO instructor_availability (instructor_id, date, status)
            VALUES ($1, $2, 'available')
            ON CONFLICT (instructor_id, date) DO UPDATE SET status = 'available'`,
-          [currentCourse.instructor_id, currentCourse.scheduled_date]
+          [currentCourse.instructor_id, currentCourse.confirmed_date]
         );
       }
 
@@ -905,9 +948,9 @@ router.put('/courses/:id/schedule', asyncHandler(async (req: Request, res: Respo
           [
             updatedCourse.instructor_id,
             updatedCourse.course_type_id,
-            updatedCourse.scheduled_date,
-            updatedCourse.scheduled_start_time || startTime,
-            updatedCourse.scheduled_end_time || endTime,
+            updatedCourse.confirmed_date,
+            updatedCourse.confirmed_start_time || startTime,
+            updatedCourse.confirmed_end_time || endTime,
             updatedCourse.location,
             updatedCourse.registered_students
           ]
@@ -917,7 +960,7 @@ router.put('/courses/:id/schedule', asyncHandler(async (req: Request, res: Respo
         await client.query(
           `DELETE FROM instructor_availability 
            WHERE instructor_id = $1 AND date = $2`,
-          [updatedCourse.instructor_id, updatedCourse.scheduled_date]
+          [updatedCourse.instructor_id, updatedCourse.confirmed_date]
         );
       }
 
@@ -946,7 +989,7 @@ router.put('/courses/:id/schedule', asyncHandler(async (req: Request, res: Respo
 router.put('/courses/:id/assign-instructor', asyncHandler(async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    const { instructorId, scheduledDate, startTime, endTime } = req.body;
+    const { instructorId, startTime, endTime } = req.body;
 
     if (!instructorId) {
       throw new AppError(400, errorCodes.VALIDATION_ERROR, 'Instructor ID is required');
@@ -959,17 +1002,18 @@ router.put('/courses/:id/assign-instructor', asyncHandler(async (req: Request, r
       await client.query('BEGIN');
 
       // Update course request with instructor and mark as confirmed
+      // Use CURRENT_DATE for confirmed_date (when admin assigns the instructor)
       const courseUpdateResult = await client.query(
         `UPDATE course_requests 
          SET instructor_id = $1, 
              status = 'confirmed', 
-             scheduled_date = $2,
-             scheduled_start_time = $3,
-             scheduled_end_time = $4,
+             confirmed_date = CURRENT_DATE,
+             confirmed_start_time = $2,
+             confirmed_end_time = $3,
              updated_at = CURRENT_TIMESTAMP
-         WHERE id = $5 
+         WHERE id = $4 
          RETURNING *`,
-        [instructorId, scheduledDate, startTime, endTime, id]
+        [instructorId, startTime, endTime, id]
       );
 
       if (courseUpdateResult.rows.length === 0) {
@@ -979,6 +1023,7 @@ router.put('/courses/:id/assign-instructor', asyncHandler(async (req: Request, r
       const courseRequest = courseUpdateResult.rows[0];
 
       // Create corresponding entry in classes table so instructor can see it in "My Classes"
+      // Use the scheduled_date from the course request (when org wants the course)
       const classInsertResult = await client.query(
         `INSERT INTO classes (
           instructor_id, 
@@ -997,7 +1042,7 @@ router.put('/courses/:id/assign-instructor', asyncHandler(async (req: Request, r
         [
           instructorId,
           courseRequest.course_type_id,
-          scheduledDate,
+          courseRequest.scheduled_date,  // Use the scheduled_date from course request
           startTime,
           endTime,
           courseRequest.location,
@@ -1005,12 +1050,15 @@ router.put('/courses/:id/assign-instructor', asyncHandler(async (req: Request, r
         ]
       );
 
-      // Remove instructor's availability for the scheduled date to prevent double-booking
-      await client.query(
-        `DELETE FROM instructor_availability 
-         WHERE instructor_id = $1 AND date = $2`,
-        [instructorId, scheduledDate]
-      );
+      // Note: We're not removing availability anymore to allow multiple assignments per day
+      // This allows instructors to handle multiple courses on the same day if needed
+      
+      // Optionally, you could track assignments differently:
+      // await client.query(
+      //   `DELETE FROM instructor_availability 
+      //    WHERE instructor_id = $1 AND date = $2`,
+      //   [instructorId, courseRequest.scheduled_date]
+      // );
 
       await client.query('COMMIT');
 
@@ -1043,9 +1091,13 @@ router.get('/instructors', asyncHandler(async (_req: Request, res: Response) => 
         u.username as instructor_name, 
         u.email,
         COALESCE(ia.date::text, 'No availability set') as availability_date,
+        COALESCE(ia.status, 'no_availability') as availability_status,
         COALESCE(cr.notes, '') as notes,
         CASE 
-          WHEN cr.id IS NOT NULL AND cr.scheduled_date::date = ia.date::date THEN 'Confirmed'
+          WHEN cr.id IS NOT NULL AND cr.confirmed_date::date = ia.date::date AND cr.status = 'confirmed' THEN 'Confirmed'
+          WHEN cr.id IS NOT NULL AND cr.confirmed_date::date = ia.date::date AND cr.status = 'completed' THEN 'Completed'
+          WHEN ia.status = 'completed' THEN 'Completed'
+          WHEN ia.status = 'available' THEN 'Available'
           WHEN ia.date IS NOT NULL THEN 'Available'
           ELSE 'No availability'
         END as assignment_status,
@@ -1056,8 +1108,8 @@ router.get('/instructors', asyncHandler(async (_req: Request, res: Response) => 
        LEFT JOIN instructor_availability ia ON u.id = ia.instructor_id 
          AND ia.date >= CURRENT_DATE
        LEFT JOIN course_requests cr ON u.id = cr.instructor_id 
-         AND cr.status = 'confirmed'
-         AND cr.scheduled_date::date = ia.date::date
+         AND cr.confirmed_date::date = ia.date::date
+         AND cr.status IN ('confirmed', 'completed')
        LEFT JOIN organizations o ON cr.organization_id = o.id
        LEFT JOIN class_types ct ON cr.course_type_id = ct.id
        WHERE u.role = 'instructor' 
@@ -1069,6 +1121,8 @@ router.get('/instructors', asyncHandler(async (_req: Request, res: Response) => 
     throw new AppError(500, errorCodes.DB_QUERY_ERROR, 'Failed to fetch instructors');
   }
 }));
+
+
 
 // Student Management Endpoints
 
@@ -1092,7 +1146,7 @@ router.get('/organization/courses/:courseId/students', asyncHandler(async (req: 
       throw new AppError(404, errorCodes.RESOURCE_NOT_FOUND, 'Course not found or not authorized');
     }
 
-    // Get students for this course
+    // Get students for this course with attendance information
     const result = await pool.query(
       `SELECT 
         s.id,
@@ -1100,6 +1154,8 @@ router.get('/organization/courses/:courseId/students', asyncHandler(async (req: 
         s.first_name,
         s.last_name,
         s.email,
+        s.attended,
+        s.attendance_marked,
         s.created_at
        FROM course_students s
        WHERE s.course_request_id = $1
@@ -1247,14 +1303,17 @@ router.get('/admin/instructor-stats', asyncHandler(async (req: Request, res: Res
   try {
     const { month } = req.query; // Format: YYYY-MM
     
-    if (!month) {
-      throw new AppError(400, errorCodes.VALIDATION_ERROR, 'Month parameter is required (format: YYYY-MM)');
+    // If month is provided, filter by that month, otherwise get all-time stats
+    let dateFilter = '';
+    let params: any[] = [];
+    
+    if (month) {
+      const startDate = `${month}-01`;
+      const endDate = new Date(new Date(startDate).getFullYear(), new Date(startDate).getMonth() + 1, 0)
+        .toISOString().split('T')[0];
+      dateFilter = `AND (cr.confirmed_date IS NULL OR (cr.confirmed_date >= $1 AND cr.confirmed_date <= $2))`;
+      params = [startDate, endDate];
     }
-
-    // Parse the month to get start and end dates
-    const startDate = `${month}-01`;
-    const endDate = new Date(new Date(startDate).getFullYear(), new Date(startDate).getMonth() + 1, 0)
-      .toISOString().split('T')[0];
 
     const result = await pool.query(
       `SELECT 
@@ -1262,36 +1321,97 @@ router.get('/admin/instructor-stats', asyncHandler(async (req: Request, res: Res
         u.username as instructor_name,
         u.email,
         COUNT(CASE WHEN cr.status = 'completed' THEN 1 END) as courses_completed,
-        COUNT(CASE WHEN cr.status = 'confirmed' AND cr.scheduled_date >= CURRENT_DATE THEN 1 END) as courses_scheduled,
+        COUNT(CASE WHEN cr.status = 'confirmed' THEN 1 END) as courses_scheduled,
         COUNT(cr.id) as total_courses,
         CASE 
-          WHEN COUNT(cr.id) > 0 THEN 
-            ROUND((COUNT(CASE WHEN cr.status = 'completed' THEN 1 END)::DECIMAL / COUNT(cr.id)) * 100, 1)
-          ELSE 0 
+          WHEN COUNT(CASE WHEN cr.status = 'confirmed' THEN 1 END) > 0 THEN
+            ROUND((COUNT(CASE WHEN cr.status = 'completed' THEN 1 END)::DECIMAL / 
+                   COUNT(CASE WHEN cr.status = 'confirmed' THEN 1 END)) * 100, 1)
+          ELSE 0
         END as completion_rate,
-        MAX(cr.scheduled_date) as last_course_date,
+        MAX(cr.completed_at)::date as last_course_date,
         CASE 
-          WHEN COUNT(cr.id) > 0 THEN 
-            ROUND(AVG(cr.registered_students::DECIMAL), 1)
-          ELSE 0 
+          WHEN COUNT(CASE WHEN cr.status = 'completed' THEN 1 END) > 0 THEN
+            ROUND(AVG(CASE WHEN cr.status = 'completed' THEN cr.registered_students END), 1)
+          ELSE 0
         END as avg_students_per_course
-      FROM users u
-      LEFT JOIN course_requests cr ON u.id = cr.instructor_id 
-        AND cr.scheduled_date >= $1 
-        AND cr.scheduled_date <= $2
-      WHERE u.role = 'instructor'
-      GROUP BY u.id, u.username, u.email
-      ORDER BY total_courses DESC, completion_rate DESC`,
-      [startDate, endDate]
+       FROM users u
+       LEFT JOIN course_requests cr ON u.id = cr.instructor_id ${dateFilter}
+       WHERE u.role = 'instructor'
+       GROUP BY u.id, u.username, u.email
+       ORDER BY u.username`,
+      params
     );
+    
+    return res.json(ApiResponseBuilder.success(result.rows));
+  } catch (error: any) {
+    console.error('Error fetching instructor statistics:', error);
+    throw new AppError(500, errorCodes.DB_QUERY_ERROR, 'Failed to fetch instructor statistics');
+  }
+}));
 
-    res.json({
-      success: true,
-      data: result.rows
-    });
-  } catch (error) {
-    console.error('Error fetching instructor stats:', error);
-    throw error;
+// Delete instructor availability for a specific date (admin only)
+router.delete('/instructors/:instructorId/availability/:date', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const { instructorId, date } = req.params;
+    
+    if (!instructorId || !date) {
+      throw new AppError(400, errorCodes.VALIDATION_ERROR, 'Instructor ID and date are required');
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // First, check if there are any confirmed courses for this instructor on this date
+      const confirmedCoursesCheck = await client.query(
+        `SELECT id FROM course_requests 
+         WHERE instructor_id = $1 
+         AND confirmed_date::date = $2::date 
+         AND status = 'confirmed'`,
+        [instructorId, date]
+      );
+
+      if (confirmedCoursesCheck.rows.length > 0) {
+        throw new AppError(400, errorCodes.VALIDATION_ERROR, 
+          'Cannot remove availability: Instructor has confirmed courses on this date. Please reassign or cancel the courses first.');
+      }
+
+      // Delete from instructor_availability
+      const deleteAvailabilityResult = await client.query(
+        'DELETE FROM instructor_availability WHERE instructor_id = $1 AND date::date = $2::date RETURNING *',
+        [instructorId, date]
+      );
+
+      // Also delete any scheduled (not confirmed) classes for this date
+      const deleteClassesResult = await client.query(
+        `DELETE FROM classes 
+         WHERE instructor_id = $1 
+         AND date::date = $2::date 
+         AND status = 'scheduled'
+         RETURNING *`,
+        [instructorId, date]
+      );
+
+      await client.query('COMMIT');
+
+      return res.json(ApiResponseBuilder.success({
+        message: 'Availability removed successfully',
+        deletedAvailability: deleteAvailabilityResult.rows.length,
+        deletedClasses: deleteClassesResult.rows.length
+      }));
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  } catch (error: any) {
+    console.error('Error removing instructor availability:', error);
+    if (error instanceof AppError) {
+      throw error;
+    }
+    throw new AppError(500, errorCodes.DB_QUERY_ERROR, 'Failed to remove instructor availability');
   }
 }));
 
@@ -1321,8 +1441,8 @@ router.get('/admin/dashboard-summary', asyncHandler(async (req: Request, res: Re
         END as avg_courses_per_instructor
       FROM users u
       LEFT JOIN course_requests cr ON u.id = cr.instructor_id 
-        AND cr.scheduled_date >= $1 
-        AND cr.scheduled_date <= $2
+        AND cr.confirmed_date >= $1 
+        AND cr.confirmed_date <= $2
       WHERE u.role = 'instructor'`,
       [startDate, endDate]
     );
@@ -2168,6 +2288,18 @@ router.post('/sysadmin/users', asyncHandler(async (req: Request, res: Response) 
       throw new AppError(400, errorCodes.VALIDATION_ERROR, 'Username, email, password, and role are required');
     }
 
+    // Check if username already exists
+    const existingUsername = await pool.query('SELECT id FROM users WHERE username = $1', [username]);
+    if (existingUsername.rows.length > 0) {
+      throw new AppError(400, errorCodes.VALIDATION_ERROR, 'Username already exists. Please choose a different username.');
+    }
+
+    // Check if email already exists
+    const existingEmail = await pool.query('SELECT id FROM users WHERE email = $1', [email]);
+    if (existingEmail.rows.length > 0) {
+      throw new AppError(400, errorCodes.VALIDATION_ERROR, 'Email address already exists. Please use a different email address.');
+    }
+
     const bcrypt = require('bcryptjs');
     const passwordHash = bcrypt.hashSync(password, 10);
     const displayName = full_name || `${first_name || ''} ${last_name || ''}`.trim();
@@ -2189,9 +2321,25 @@ router.post('/sysadmin/users', asyncHandler(async (req: Request, res: Response) 
       message: 'User created successfully',
       data: result.rows[0]
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Error creating user:', error);
-    throw error;
+    
+    // Handle specific database constraint violations
+    if (error.code === '23505') { // Unique constraint violation
+      if (error.constraint === 'users_email_key') {
+        throw new AppError(400, errorCodes.VALIDATION_ERROR, 'Email address already exists. Please use a different email address.');
+      } else if (error.constraint === 'users_username_key') {
+        throw new AppError(400, errorCodes.VALIDATION_ERROR, 'Username already exists. Please choose a different username.');
+      }
+    }
+    
+    // Re-throw AppErrors as-is
+    if (error instanceof AppError) {
+      throw error;
+    }
+    
+    // Generic error for unexpected issues
+    throw new AppError(500, errorCodes.DB_QUERY_ERROR, 'Failed to create user');
   }
 }));
 
@@ -2741,6 +2889,54 @@ router.delete('/sysadmin/organizations/:id', asyncHandler(async (req: Request, r
     success: true,
     message: 'Organization deleted successfully'
   });
+}));
+
+// Admin endpoint to get students for a specific course
+router.get('/admin/courses/:courseId/students', authenticateToken, asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const { courseId } = req.params;
+    const userRole = req.user?.role;
+
+    // Only admin users can access this endpoint
+    if (userRole !== 'admin') {
+      throw new AppError(403, errorCodes.FORBIDDEN, 'Access denied. Admin role required.');
+    }
+
+    // Verify the course exists
+    const courseCheck = await pool.query(
+      'SELECT id FROM course_requests WHERE id = $1',
+      [courseId]
+    );
+
+    if (courseCheck.rows.length === 0) {
+      throw new AppError(404, errorCodes.RESOURCE_NOT_FOUND, 'Course not found');
+    }
+
+    // Get students for this course with attendance information
+    const result = await pool.query(
+      `SELECT 
+        s.id,
+        s.course_request_id,
+        s.first_name,
+        s.last_name,
+        s.email,
+        s.attended,
+        s.attendance_marked,
+        s.created_at
+       FROM course_students s
+       WHERE s.course_request_id = $1
+       ORDER BY s.last_name, s.first_name`,
+      [courseId]
+    );
+
+    return res.json(ApiResponseBuilder.success(result.rows));
+  } catch (error: any) {
+    console.error('Error fetching course students:', error);
+    if (error instanceof AppError) {
+      throw error;
+    }
+    throw new AppError(500, errorCodes.DB_QUERY_ERROR, 'Failed to fetch course students');
+  }
 }));
 
 export default router; 

@@ -91,6 +91,7 @@ const createRetryDelay = (baseDelay: number) => {
 const getEnhancedError = (error: any, context: string): EnhancedError => {
   const statusCode = error?.response?.status;
   const errorCode = error?.code;
+  const backendMessage = error?.response?.data?.error?.message || error?.response?.data?.message;
   
   // Network errors
   if (!statusCode && (errorCode === 'NETWORK_ERROR' || error.message?.includes('Network Error'))) {
@@ -105,6 +106,27 @@ const getEnhancedError = (error: any, context: string): EnhancedError => {
   
   // HTTP status code errors
   switch (statusCode) {
+    case 400:
+      // Special handling for attendance validation errors
+      if (backendMessage?.includes('attendance')) {
+        return {
+          message: backendMessage,
+          statusCode,
+          code: 'VALIDATION_ERROR',
+          isRetryable: false,
+          userMessage: 'Cannot complete class',
+          suggestion: backendMessage || 'Please mark attendance for all students before completing the class.'
+        };
+      }
+      return {
+        message: backendMessage || error.message,
+        statusCode,
+        code: 'VALIDATION_ERROR',
+        isRetryable: false,
+        userMessage: 'Invalid request',
+        suggestion: backendMessage || 'Please check your input and try again'
+      };
+      
     case 401:
       return {
         message: error.message,
@@ -161,12 +183,12 @@ const getEnhancedError = (error: any, context: string): EnhancedError => {
       
     default:
       return {
-        message: error.message || 'Unknown error occurred',
+        message: backendMessage || error.message || 'Unknown error occurred',
         statusCode,
         code: 'UNKNOWN',
         isRetryable: statusCode ? statusCode >= 500 : true,
         userMessage: `Failed to ${context}`,
-        suggestion: 'Please try again or contact support if this continues'
+        suggestion: backendMessage || 'Please try again or contact support if this continues'
       };
   }
 };
@@ -175,7 +197,9 @@ const getEnhancedError = (error: any, context: string): EnhancedError => {
 const fetchAvailability = async () => {
   try {
     const response = await api.get('/api/v1/instructor/availability');
-    return response.data.data || [];
+    const data = response.data.data || [];
+    logger.info('[useInstructorData] Availability data fetched:', data);
+    return data;
   } catch (error) {
     const enhancedError = getEnhancedError(error, 'load availability');
     logger.error('[useInstructorData] Availability fetch error:', enhancedError);
@@ -275,7 +299,7 @@ export const useInstructorData = () => {
     queryKey: QUERY_KEYS.availability,
     queryFn: fetchAvailability,
     enabled: isAuthenticated && !!user,
-    staleTime: 5 * 60 * 1000, // 5 minutes
+    staleTime: 30 * 1000, // 30 seconds (reduced from 5 minutes)
     gcTime: 10 * 60 * 1000, // 10 minutes
     retry: createRetryFn(RETRY_CONFIG.availability.maxRetries, RETRY_CONFIG.availability.baseDelay),
     retryDelay: createRetryDelay(RETRY_CONFIG.availability.baseDelay),
@@ -406,27 +430,24 @@ export const useInstructorData = () => {
         throw enhancedError;
       }
     },
-    onSuccess: ({ courseId }) => {
-      // Optimistically update scheduled classes
-      queryClient.setQueryData(QUERY_KEYS.classes, (old: ScheduledClass[] = []) =>
-        old.map(cls => cls.course_id === courseId ? { ...cls, completed: true } : cls)
-      );
-      // Invalidate completed classes to refresh
-      queryClient.invalidateQueries({ queryKey: QUERY_KEYS.completedClasses });
+    onSuccess: async ({ courseId }) => {
+      // Small delay to ensure backend has processed the update
+      await new Promise(resolve => setTimeout(resolve, 500));
+      
+      // Reset query data to force fresh fetch
+      queryClient.resetQueries({ queryKey: QUERY_KEYS.availability });
+      
+      // Invalidate queries to refresh data from server
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.classes });
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.completedClasses });
+      await queryClient.invalidateQueries({ queryKey: QUERY_KEYS.availability });
+      
       analytics.trackClassAction('completed_successfully', courseId);
       setError(null);
     },
     onError: (error: EnhancedError) => {
       logger.error('[useInstructorData] Error completing class:', error);
-      if (error.message?.includes('attendance')) {
-        setError({
-          ...error,
-          userMessage: 'Cannot complete class',
-          suggestion: 'Please mark attendance for all students before completing the class.'
-        });
-      } else {
-        setError(error);
-      }
+      setError(error);
     },
   });
 

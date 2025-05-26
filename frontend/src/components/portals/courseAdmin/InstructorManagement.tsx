@@ -21,10 +21,15 @@ import {
   Stack,
   MenuItem,
   Tooltip,
+  FormControlLabel,
+  Switch,
 } from '@mui/material';
-import { Edit as EditIcon, Delete as DeleteIcon, Add as AddIcon, Schedule as ScheduleIcon, CalendarToday as CalendarIcon, Cancel as CancelIcon } from '@mui/icons-material';
+import { Edit as EditIcon, Delete as DeleteIcon, Add as AddIcon, Schedule as ScheduleIcon, CalendarToday as CalendarIcon, Cancel as CancelIcon, Visibility as ViewIcon } from '@mui/icons-material';
 import { api } from '../../../services/api';
 import InstructorDashboard from './InstructorDashboard';
+import AdminViewStudentsDialog from '../../dialogs/AdminViewStudentsDialog';
+
+console.log('[InstructorManagement] Module loaded');
 
 interface Instructor {
   id: number;
@@ -32,6 +37,7 @@ interface Instructor {
   username: string;
   email: string;
   availability_date?: string;
+  availability_status?: string;
   assignment_status?: string;
   assigned_organization?: string;
   assigned_location?: string;
@@ -42,6 +48,15 @@ interface Instructor {
     start_time: string;
     end_time: string;
   }[];
+}
+
+interface AvailableInstructor {
+  id: number;
+  instructor_name: string;
+  email: string;
+  first_name?: string;
+  last_name?: string;
+  availability_status?: string;
 }
 
 interface FormData {
@@ -58,6 +73,7 @@ interface AvailabilityFormData {
 
 const InstructorManagement: React.FC = () => {
   const [instructors, setInstructors] = useState<Instructor[]>([]);
+  const [availableInstructors, setAvailableInstructors] = useState<AvailableInstructor[]>([]);
   const [pendingCourses, setPendingCourses] = useState<any[]>([]);
   const [confirmedCourses, setConfirmedCourses] = useState<any[]>([]);
   const [completedCourses, setCompletedCourses] = useState<any[]>([]);
@@ -97,6 +113,13 @@ const InstructorManagement: React.FC = () => {
   });
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  
+  // State for viewing students
+  const [viewStudentsOpen, setViewStudentsOpen] = useState(false);
+  const [selectedCourseForStudents, setSelectedCourseForStudents] = useState<any>(null);
+  
+  // State for showing/hiding completed assignments
+  const [showCompleted, setShowCompleted] = useState(false);
 
   useEffect(() => {
     fetchInstructors();
@@ -210,14 +233,46 @@ const InstructorManagement: React.FC = () => {
     }
   };
 
-  const handleAssignOpen = (course: any) => {
+  const handleAssignOpen = async (course: any) => {
     setSelectedCourse(course);
     setAssignmentData({
       instructorId: '',
-      scheduledDate: '',
+      scheduledDate: course.scheduled_date || '',  // Pre-fill with the scheduled date from org
       startTime: '09:00',
       endTime: '12:00'
     });
+    
+    // Fetch available instructors for the scheduled date
+    if (course.scheduled_date) {
+      try {
+        // Extract just the date part (YYYY-MM-DD) from the scheduled_date
+        const dateOnly = course.scheduled_date.split('T')[0];
+        const response = await api.get(`/api/v1/instructors/available/${dateOnly}`);
+        setAvailableInstructors(response.data.data);
+        
+        if (response.data.data.length === 0) {
+          setError(`No instructors are available on ${formatDateWithoutTimezone(course.scheduled_date)}. Instructors must mark their availability for this date.`);
+        }
+      } catch (err: any) {
+        console.error('Error fetching available instructors:', err);
+        console.error('Error response:', err.response);
+        console.error('Error status:', err.response?.status);
+        console.error('Error data:', err.response?.data);
+        
+        if (err.response?.status === 401) {
+          setError('Authentication error. Please log in again.');
+        } else if (err.response?.status === 403) {
+          setError('You do not have permission to view available instructors.');
+        } else {
+          setError(`Failed to fetch available instructors: ${err.response?.data?.error?.message || err.message}`);
+        }
+        setAvailableInstructors([]);
+      }
+    } else {
+      setError('Course must have a scheduled date before assigning an instructor');
+      setAvailableInstructors([]);
+    }
+    
     setAssignOpen(true);
   };
 
@@ -226,14 +281,39 @@ const InstructorManagement: React.FC = () => {
     setSelectedCourse(null);
   };
 
-  const handleEditScheduleOpen = (course: any) => {
+  const handleEditScheduleOpen = async (course: any) => {
     setCourseToEdit(course);
     setEditScheduleData({
-      scheduledDate: course.scheduled_date || '',
-      startTime: course.scheduled_start_time || '09:00',
-      endTime: course.scheduled_end_time || '12:00',
+      scheduledDate: course.confirmed_date || '',
+      startTime: course.confirmed_start_time || '09:00',
+      endTime: course.confirmed_end_time || '12:00',
       instructorId: course.instructor_id || ''
     });
+    
+    // Fetch available instructors for the confirmed date
+    if (course.confirmed_date) {
+      try {
+        // Extract just the date part (YYYY-MM-DD) from the confirmed_date
+        const dateOnly = course.confirmed_date.split('T')[0];
+        const response = await api.get(`/api/v1/instructors/available/${dateOnly}`);
+        // Include the current instructor even if they're not available (to allow keeping them)
+        const availableList = response.data.data;
+        if (course.instructor_id && !availableList.find((i: any) => i.id === course.instructor_id)) {
+          // Add current instructor to the list
+          availableList.unshift({
+            id: course.instructor_id,
+            instructor_name: course.instructor_name,
+            email: '',
+            availability_status: 'Currently Assigned'
+          });
+        }
+        setAvailableInstructors(availableList);
+      } catch (err) {
+        console.error('Error fetching available instructors:', err);
+        setAvailableInstructors([]);
+      }
+    }
+    
     setEditScheduleOpen(true);
   };
 
@@ -313,6 +393,22 @@ const InstructorManagement: React.FC = () => {
     }
   };
 
+  const handleDeleteAvailability = async (instructorId: number, date: string) => {
+    if (!window.confirm(`Are you sure you want to remove this availability record for ${formatDateWithoutTimezone(date)}? This will also remove any unconfirmed classes for this date.`)) return;
+    
+    try {
+      await api.delete(`/api/v1/instructors/${instructorId}/availability/${date}`);
+      setSuccess('Availability removed successfully');
+      fetchInstructors();
+    } catch (err: any) {
+      if (err.response?.data?.error?.message) {
+        setError(err.response.data.error.message);
+      } else {
+        setError('Failed to remove availability');
+      }
+    }
+  };
+
   const addAvailabilitySlot = () => {
     setAvailabilityData([
       ...availabilityData,
@@ -340,17 +436,50 @@ const InstructorManagement: React.FC = () => {
     try {
       await api.put(`/api/v1/courses/${selectedCourse.id}/assign-instructor`, {
         instructorId: assignmentData.instructorId,
-        scheduledDate: assignmentData.scheduledDate,
         startTime: assignmentData.startTime,
         endTime: assignmentData.endTime
       });
       setSuccess('Instructor assigned successfully! Course status updated to Confirmed.');
-      fetchPendingCourses();
-      fetchConfirmedCourses();
-      fetchCompletedCourses();
+      
+      // Refresh all data to ensure UI is in sync
+      await Promise.all([
+        fetchPendingCourses(),
+        fetchConfirmedCourses(),
+        fetchCompletedCourses(),
+        fetchInstructors() // This will refresh the instructor availability display
+      ]);
+      
       handleAssignClose();
     } catch (err) {
       setError('Failed to assign instructor');
+    }
+  };
+
+  const handleEditScheduleDateChange = async (newDate: string) => {
+    setEditScheduleData(prev => ({ ...prev, scheduledDate: newDate }));
+    
+    // Fetch available instructors for the new date
+    if (newDate) {
+      try {
+        // Ensure we only use the date part (YYYY-MM-DD)
+        const dateOnly = newDate.split('T')[0];
+        const response = await api.get(`/api/v1/instructors/available/${dateOnly}`);
+        const availableList = response.data.data;
+        
+        // Check if current instructor is available on new date
+        const currentInstructorAvailable = availableList.find((i: any) => i.id === editScheduleData.instructorId);
+        
+        if (!currentInstructorAvailable && editScheduleData.instructorId) {
+          // Current instructor not available on new date
+          setEditScheduleData(prev => ({ ...prev, instructorId: '' }));
+          setError(`Current instructor is not available on ${formatDateWithoutTimezone(newDate)}. Please select a different instructor.`);
+        }
+        
+        setAvailableInstructors(availableList);
+      } catch (err) {
+        console.error('Error fetching available instructors:', err);
+        setAvailableInstructors([]);
+      }
     }
   };
 
@@ -366,9 +495,15 @@ const InstructorManagement: React.FC = () => {
         instructorId: editScheduleData.instructorId
       });
       setSuccess('Course schedule updated successfully!');
-      fetchPendingCourses();
-      fetchConfirmedCourses();
-      fetchCompletedCourses();
+      
+      // Refresh all data to ensure UI is in sync
+      await Promise.all([
+        fetchPendingCourses(),
+        fetchConfirmedCourses(),
+        fetchCompletedCourses(),
+        fetchInstructors() // This will refresh the instructor availability display
+      ]);
+      
       handleEditScheduleClose();
     } catch (err) {
       setError('Failed to update course schedule');
@@ -387,9 +522,15 @@ const InstructorManagement: React.FC = () => {
         reason: cancelData.reason
       });
       setSuccess('Course cancelled successfully!');
-      fetchPendingCourses();
-      fetchConfirmedCourses();
-      fetchCompletedCourses();
+      
+      // Refresh all data to ensure UI is in sync
+      await Promise.all([
+        fetchPendingCourses(),
+        fetchConfirmedCourses(),
+        fetchCompletedCourses(),
+        fetchInstructors() // This will refresh the instructor availability display
+      ]);
+      
       handleCancelCourseClose();
     } catch (err) {
       setError('Failed to cancel course');
@@ -413,6 +554,16 @@ const InstructorManagement: React.FC = () => {
     }
     
     return dateString;
+  };
+
+  const handleViewStudentsOpen = (course: any) => {
+    setSelectedCourseForStudents(course);
+    setViewStudentsOpen(true);
+  };
+
+  const handleViewStudentsClose = () => {
+    setViewStudentsOpen(false);
+    setSelectedCourseForStudents(null);
   };
 
   return (
@@ -518,13 +669,25 @@ const InstructorManagement: React.FC = () => {
       {/* Instructor Management Section */}
       <Box sx={{ mb: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <Typography variant="h6">Instructor Availability & Assignments</Typography>
-        <Button
-          variant="outlined"
-          onClick={fetchInstructors}
-          sx={{ textTransform: 'none' }}
-        >
-          Refresh Data
-        </Button>
+        <Box sx={{ display: 'flex', gap: 2, alignItems: 'center' }}>
+          <FormControlLabel
+            control={
+              <Switch
+                checked={showCompleted}
+                onChange={(e) => setShowCompleted(e.target.checked)}
+                color="primary"
+              />
+            }
+            label="Show Completed"
+          />
+          <Button
+            variant="outlined"
+            onClick={fetchInstructors}
+            sx={{ textTransform: 'none' }}
+          >
+            Refresh Data
+          </Button>
+        </Box>
       </Box>
 
       <TableContainer component={Paper} sx={{ mb: 4 }}>
@@ -542,95 +705,114 @@ const InstructorManagement: React.FC = () => {
             </TableRow>
           </TableHead>
           <TableBody>
-            {instructors.map((instructor, index) => {
-              return (
-                <TableRow key={`${instructor.id}-${instructor.availability_date}-${index}`}>
-                  <TableCell>
-                    <Typography variant="body2" fontWeight="medium">
-                      {instructor.instructor_name}
-                    </Typography>
-                    <Typography variant="caption" color="textSecondary">
-                      {instructor.email}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Box>
-                      {instructor.availability_date && instructor.availability_date !== 'No availability set' ? (
-                        <Chip
-                          label={formatDateWithoutTimezone(instructor.availability_date)}
-                          size="small"
-                          color="success"
-                          variant="outlined"
-                          sx={{ mb: 0.5 }}
-                        />
-                      ) : (
-                        <Typography variant="body2" color="textSecondary" fontStyle="italic">
-                          No availability set
-                        </Typography>
+            {instructors
+              .filter((instructor) => {
+                // Filter based on showCompleted toggle
+                if (!showCompleted && instructor.assignment_status === 'Completed') {
+                  return false;
+                }
+                return true;
+              })
+              .map((instructor, index) => {
+                return (
+                  <TableRow key={`${instructor.id}-${instructor.availability_date}-${index}`}>
+                    <TableCell>
+                      <Typography variant="body2" fontWeight="medium">
+                        {instructor.instructor_name}
+                      </Typography>
+                      <Typography variant="caption" color="textSecondary">
+                        {instructor.email}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Box>
+                        {instructor.availability_date && instructor.availability_date !== 'No availability set' ? (
+                          <Chip
+                            label={formatDateWithoutTimezone(instructor.availability_date)}
+                            size="small"
+                            color="success"
+                            variant="outlined"
+                            sx={{ mb: 0.5 }}
+                          />
+                        ) : (
+                          <Typography variant="body2" color="textSecondary" fontStyle="italic">
+                            No availability set
+                          </Typography>
+                        )}
+                      </Box>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2">
+                        {instructor.assigned_organization || '-'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2">
+                        {instructor.assigned_location || '-'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography variant="body2">
+                        {instructor.assigned_course_type || '-'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Typography 
+                        variant="body2" 
+                        sx={{ 
+                          maxWidth: '200px', 
+                          overflow: 'hidden', 
+                          textOverflow: 'ellipsis',
+                          whiteSpace: 'nowrap' 
+                        }}
+                      >
+                        {instructor.notes || '-'}
+                      </Typography>
+                    </TableCell>
+                    <TableCell>
+                      <Chip
+                        label={instructor.assignment_status}
+                        color={
+                          instructor.assignment_status === 'Confirmed' ? 'primary' : 
+                          instructor.assignment_status === 'Completed' ? 'default' :
+                          instructor.assignment_status === 'Available' ? 'success' :
+                          'default'
+                        }
+                        size="small"
+                        variant={instructor.assignment_status === 'Completed' ? 'filled' : 'outlined'}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Tooltip title="Edit Instructor">
+                        <IconButton onClick={() => handleOpen(instructor)} color="primary" size="small">
+                          <EditIcon />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Manage Weekly Availability">
+                        <IconButton onClick={() => handleAvailabilityOpen(instructor)} color="info" size="small">
+                          <ScheduleIcon />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="View Calendar & Schedule">
+                        <IconButton onClick={() => handleScheduleOpen(instructor)} color="secondary" size="small">
+                          <CalendarIcon />
+                        </IconButton>
+                      </Tooltip>
+                      {instructor.availability_date && instructor.availability_date !== 'No availability set' && instructor.assignment_status !== 'Completed' && (
+                        <Tooltip title="Remove this availability date">
+                          <IconButton 
+                            onClick={() => handleDeleteAvailability(instructor.id, instructor.availability_date!)} 
+                            color="error" 
+                            size="small"
+                          >
+                            <DeleteIcon />
+                          </IconButton>
+                        </Tooltip>
                       )}
-                    </Box>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2">
-                      {instructor.assigned_organization || '-'}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2">
-                      {instructor.assigned_location || '-'}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography variant="body2">
-                      {instructor.assigned_course_type || '-'}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Typography 
-                      variant="body2" 
-                      sx={{ 
-                        maxWidth: '200px', 
-                        overflow: 'hidden', 
-                        textOverflow: 'ellipsis',
-                        whiteSpace: 'nowrap' 
-                      }}
-                    >
-                      {instructor.notes || '-'}
-                    </Typography>
-                  </TableCell>
-                  <TableCell>
-                    <Chip
-                      label={instructor.assignment_status}
-                      color={instructor.assignment_status === 'Confirmed' ? 'primary' : 'success'}
-                      size="small"
-                      variant="outlined"
-                    />
-                  </TableCell>
-                  <TableCell>
-                    <Tooltip title="Edit Instructor">
-                      <IconButton onClick={() => handleOpen(instructor)} color="primary" size="small">
-                        <EditIcon />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Manage Weekly Availability">
-                      <IconButton onClick={() => handleAvailabilityOpen(instructor)} color="info" size="small">
-                        <ScheduleIcon />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="View Calendar & Schedule">
-                      <IconButton onClick={() => handleScheduleOpen(instructor)} color="secondary" size="small">
-                        <CalendarIcon />
-                      </IconButton>
-                    </Tooltip>
-                    <Tooltip title="Delete Instructor">
-                      <IconButton onClick={() => handleDelete(instructor.id)} color="error" size="small">
-                        <DeleteIcon />
-                      </IconButton>
-                    </Tooltip>
-                  </TableCell>
-                </TableRow>
-              );
-            })}
+                    </TableCell>
+                  </TableRow>
+                );
+              })}
           </TableBody>
         </Table>
       </TableContainer>
@@ -645,7 +827,8 @@ const InstructorManagement: React.FC = () => {
             <TableHead>
               <TableRow>
                 <TableCell>Date Requested</TableCell>
-                <TableCell>Date Scheduled</TableCell>
+                <TableCell>Scheduled Date</TableCell>
+                <TableCell>Confirmed Date</TableCell>
                 <TableCell>Organization</TableCell>
                 <TableCell>Location</TableCell>
                 <TableCell>Course Type</TableCell>
@@ -662,12 +845,15 @@ const InstructorManagement: React.FC = () => {
                 <TableRow key={course.id}>
                   <TableCell>{formatDateWithoutTimezone(course.date_requested)}</TableCell>
                   <TableCell>
+                    {course.scheduled_date ? formatDateWithoutTimezone(course.scheduled_date) : '-'}
+                  </TableCell>
+                  <TableCell>
                     <Typography variant="body2" fontWeight="medium">
-                      {course.scheduled_date ? formatDateWithoutTimezone(course.scheduled_date) : '-'}
+                      {course.confirmed_date ? formatDateWithoutTimezone(course.confirmed_date) : '-'}
                     </Typography>
-                    {course.scheduled_start_time && course.scheduled_end_time && (
+                    {course.confirmed_start_time && course.confirmed_end_time && (
                       <Typography variant="caption" color="textSecondary" display="block">
-                        {course.scheduled_start_time.slice(0,5)} - {course.scheduled_end_time.slice(0,5)}
+                        {course.confirmed_start_time.slice(0,5)} - {course.confirmed_end_time.slice(0,5)}
                       </Typography>
                     )}
                   </TableCell>
@@ -693,6 +879,15 @@ const InstructorManagement: React.FC = () => {
                     <Stack direction="row" spacing={1}>
                       <Button
                         variant="outlined"
+                        color="primary"
+                        size="small"
+                        startIcon={<ViewIcon />}
+                        onClick={() => handleViewStudentsOpen(course)}
+                      >
+                        View
+                      </Button>
+                      <Button
+                        variant="outlined"
                         color="secondary"
                         size="small"
                         onClick={() => handleEditScheduleOpen(course)}
@@ -713,7 +908,7 @@ const InstructorManagement: React.FC = () => {
               ))}
               {confirmedCourses.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={11} align="center">
+                  <TableCell colSpan={12} align="center">
                     <Typography variant="body2" color="textSecondary" sx={{ py: 2 }}>
                       No confirmed courses yet
                     </Typography>
@@ -744,6 +939,7 @@ const InstructorManagement: React.FC = () => {
                 <TableCell>Notes</TableCell>
                 <TableCell>Instructor</TableCell>
                 <TableCell>Status</TableCell>
+                <TableCell>Actions</TableCell>
               </TableRow>
             </TableHead>
             <TableBody>
@@ -752,11 +948,11 @@ const InstructorManagement: React.FC = () => {
                   <TableCell>{formatDateWithoutTimezone(course.date_requested)}</TableCell>
                   <TableCell>
                     <Typography variant="body2" fontWeight="medium">
-                      {course.scheduled_date ? formatDateWithoutTimezone(course.scheduled_date) : '-'}
+                      {course.confirmed_date ? formatDateWithoutTimezone(course.confirmed_date) : '-'}
                     </Typography>
-                    {course.scheduled_start_time && course.scheduled_end_time && (
+                    {course.confirmed_start_time && course.confirmed_end_time && (
                       <Typography variant="caption" color="textSecondary" display="block">
-                        {course.scheduled_start_time.slice(0,5)} - {course.scheduled_end_time.slice(0,5)}
+                        {course.confirmed_start_time.slice(0,5)} - {course.confirmed_end_time.slice(0,5)}
                       </Typography>
                     )}
                   </TableCell>
@@ -778,11 +974,22 @@ const InstructorManagement: React.FC = () => {
                   <TableCell>
                     <Chip label={course.status} color="info" size="small" />
                   </TableCell>
+                  <TableCell>
+                    <Button
+                      variant="outlined"
+                      color="primary"
+                      size="small"
+                      startIcon={<ViewIcon />}
+                      onClick={() => handleViewStudentsOpen(course)}
+                    >
+                      View Students
+                    </Button>
+                  </TableCell>
                 </TableRow>
               ))}
               {completedCourses.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={10} align="center">
+                  <TableCell colSpan={11} align="center">
                     <Typography variant="body2" color="textSecondary" sx={{ py: 2 }}>
                       No completed courses yet
                     </Typography>
@@ -995,34 +1202,44 @@ const InstructorManagement: React.FC = () => {
             Course Type: {selectedCourse?.course_type}<br/>
             Organization: {selectedCourse?.organization_name}<br/>
             Location: {selectedCourse?.location}<br/>
-            Students: {selectedCourse?.registered_students}
+            Students: {selectedCourse?.registered_students}<br/>
+            Scheduled Date: {selectedCourse?.scheduled_date ? formatDateWithoutTimezone(selectedCourse.scheduled_date) : 'Not set'}
           </Typography>
 
           <Stack spacing={2}>
-            <TextField
-              select
-              label="Instructor"
-              value={assignmentData.instructorId}
-              onChange={(e) => setAssignmentData(prev => ({ ...prev, instructorId: e.target.value }))}
-              fullWidth
-              required
-            >
-              <MenuItem value="">Select an instructor</MenuItem>
-              {instructors.map((instructor) => (
-                <MenuItem key={instructor.id} value={instructor.id}>
-                  {instructor.instructor_name} ({instructor.email})
-                </MenuItem>
-              ))}
-            </TextField>
+            {availableInstructors.length === 0 ? (
+              <Alert severity="warning">
+                No instructors are available for {selectedCourse?.scheduled_date ? formatDateWithoutTimezone(selectedCourse.scheduled_date) : 'this date'}.
+                <br />
+                Instructors must mark their availability in their portal before they can be assigned to courses.
+              </Alert>
+            ) : (
+              <TextField
+                select
+                label="Available Instructors"
+                value={assignmentData.instructorId}
+                onChange={(e) => setAssignmentData(prev => ({ ...prev, instructorId: e.target.value }))}
+                fullWidth
+                required
+                helperText={`${availableInstructors.length} instructor(s) available on ${formatDateWithoutTimezone(selectedCourse?.scheduled_date)}`}
+              >
+                <MenuItem value="">Select an instructor</MenuItem>
+                {availableInstructors.map((instructor) => (
+                  <MenuItem key={instructor.id} value={instructor.id}>
+                    {instructor.instructor_name} ({instructor.email})
+                  </MenuItem>
+                ))}
+              </TextField>
+            )}
 
             <TextField
               type="date"
-              label="Scheduled Date"
+              label="Course Date (from Organization Request)"
               value={assignmentData.scheduledDate}
-              onChange={(e) => setAssignmentData(prev => ({ ...prev, scheduledDate: e.target.value }))}
               fullWidth
-              required
+              disabled
               InputLabelProps={{ shrink: true }}
+              helperText="This is the date requested by the organization"
             />
 
             <TextField
@@ -1050,7 +1267,7 @@ const InstructorManagement: React.FC = () => {
             onClick={handleAssignInstructor} 
             variant="contained" 
             color="primary"
-            disabled={!assignmentData.instructorId || !assignmentData.scheduledDate}
+            disabled={!assignmentData.instructorId || availableInstructors.length === 0}
           >
             Assign Instructor & Confirm Course
           </Button>
@@ -1070,29 +1287,30 @@ const InstructorManagement: React.FC = () => {
 
           <Stack spacing={2} sx={{ mt: 2 }}>
             <TextField
-              select
-              label="Instructor"
-              value={editScheduleData.instructorId}
-              onChange={(e) => setEditScheduleData(prev => ({ ...prev, instructorId: e.target.value }))}
-              fullWidth
-            >
-              <MenuItem value="">Select an instructor</MenuItem>
-              {instructors.map((instructor) => (
-                <MenuItem key={instructor.id} value={instructor.id}>
-                  {instructor.instructor_name} ({instructor.email})
-                </MenuItem>
-              ))}
-            </TextField>
-
-            <TextField
               type="date"
               label="Scheduled Date"
               value={editScheduleData.scheduledDate}
-              onChange={(e) => setEditScheduleData(prev => ({ ...prev, scheduledDate: e.target.value }))}
+              onChange={(e) => handleEditScheduleDateChange(e.target.value)}
               fullWidth
               required
               InputLabelProps={{ shrink: true }}
             />
+
+            <TextField
+              select
+              label="Available Instructors"
+              value={editScheduleData.instructorId}
+              onChange={(e) => setEditScheduleData(prev => ({ ...prev, instructorId: e.target.value }))}
+              fullWidth
+              helperText={availableInstructors.length > 0 ? `${availableInstructors.length} instructor(s) available` : 'No instructors available for this date'}
+            >
+              <MenuItem value="">Select an instructor</MenuItem>
+              {availableInstructors.map((instructor) => (
+                <MenuItem key={instructor.id} value={instructor.id}>
+                  {instructor.instructor_name} {instructor.availability_status === 'Currently Assigned' ? '(Currently Assigned)' : `(${instructor.email})`}
+                </MenuItem>
+              ))}
+            </TextField>
 
             <TextField
               type="time"
@@ -1165,8 +1383,22 @@ const InstructorManagement: React.FC = () => {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* View Students Dialog */}
+      <AdminViewStudentsDialog
+        open={viewStudentsOpen}
+        onClose={handleViewStudentsClose}
+        courseId={selectedCourseForStudents?.id || null}
+        courseInfo={{
+          course_type: selectedCourseForStudents?.course_type,
+          organization_name: selectedCourseForStudents?.organization_name,
+          location: selectedCourseForStudents?.location
+        }}
+      />
     </Box>
   );
 };
 
-export default InstructorManagement; 
+console.log('[InstructorManagement] Component defined');
+export default InstructorManagement;
+console.log('[InstructorManagement] Module exported'); 

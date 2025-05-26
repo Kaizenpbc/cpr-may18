@@ -417,6 +417,11 @@ export const getOrganizationStudentParticipationAnalytics = async (timeframe: st
   return extractData(response);
 };
 
+// Admin endpoints
+export const adminApi = {
+  getCourseStudents: (courseId: number) => api.get(`/api/v1/admin/courses/${courseId}/students`),
+};
+
 export default api;
 
 console.log('[Debug] api.ts - API service initialized'); 
