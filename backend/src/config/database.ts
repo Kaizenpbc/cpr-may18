@@ -217,6 +217,21 @@ const initializeDatabase = async () => {
         ) THEN 
           ALTER TABLE course_requests ADD COLUMN completed_at TIMESTAMP WITH TIME ZONE;
         END IF;
+
+        -- Add ready_for_billing columns if they don't exist
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'course_requests' AND column_name = 'ready_for_billing'
+        ) THEN 
+          ALTER TABLE course_requests ADD COLUMN ready_for_billing BOOLEAN DEFAULT FALSE;
+        END IF;
+
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'course_requests' AND column_name = 'ready_for_billing_at'
+        ) THEN 
+          ALTER TABLE course_requests ADD COLUMN ready_for_billing_at TIMESTAMP WITH TIME ZONE;
+        END IF;
       END $$;
     `);
 
@@ -363,6 +378,65 @@ const initializeDatabase = async () => {
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
+
+    // Create invoices table if it doesn't exist
+    console.log('💰 Creating invoices table...');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS invoices (
+        id SERIAL PRIMARY KEY,
+        invoice_number VARCHAR(50) NOT NULL UNIQUE,
+        course_id INTEGER REFERENCES course_requests(id),
+        organization_id INTEGER NOT NULL REFERENCES organizations(id),
+        invoice_date DATE NOT NULL,
+        due_date DATE NOT NULL,
+        amount DECIMAL(10,2) NOT NULL,
+        status VARCHAR(20) NOT NULL DEFAULT 'pending',
+        course_type_name VARCHAR(255),
+        location VARCHAR(255),
+        date_completed DATE,
+        students_attendance INTEGER,
+        rate_per_student DECIMAL(10,2),
+        notes TEXT,
+        email_sent_at TIMESTAMP WITH TIME ZONE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log('✅ Invoices table created successfully');
+
+    // Create payments table if it doesn't exist
+    console.log('💳 Creating payments table...');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS payments (
+        id SERIAL PRIMARY KEY,
+        invoice_id INTEGER NOT NULL REFERENCES invoices(id),
+        amount DECIMAL(10,2) NOT NULL,
+        payment_date DATE NOT NULL,
+        payment_method VARCHAR(50),
+        reference_number VARCHAR(100),
+        notes TEXT,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+    console.log('✅ Payments table created successfully');
+
+    // Create course_pricing table if it doesn't exist
+    console.log('💵 Creating course_pricing table...');
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS course_pricing (
+        id SERIAL PRIMARY KEY,
+        organization_id INTEGER NOT NULL REFERENCES organizations(id),
+        course_type_id INTEGER NOT NULL REFERENCES class_types(id),
+        price_per_student DECIMAL(10,2) NOT NULL,
+        effective_date DATE NOT NULL,
+        is_active BOOLEAN DEFAULT TRUE,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        UNIQUE(organization_id, course_type_id, is_active)
+      );
+    `);
+    console.log('✅ Course_pricing table created successfully');
 
     console.log('🎉 [DATABASE SUCCESS] All database tables initialized successfully!');
     console.log('📊 [DATABASE INFO] Database schema setup completed');

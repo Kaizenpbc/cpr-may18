@@ -51,8 +51,8 @@ const AccountingPortal = () => {
     const [selectedView, setSelectedView] = useState('billingReady'); // Default view
     // State for Billing Ready view
     const [billingQueue, setBillingQueue] = useState([]);
-    const [isLoadingBillingQueue, setIsLoadingBillingQueue] = useState(false);
-    const [billingQueueError, setBillingQueueError] = useState('');
+    const [isLoadingBilling, setIsLoadingBilling] = useState(true);
+    const [billingError, setBillingError] = useState('');
     // State for View Students dialog
     const [showViewStudentsDialog, setShowViewStudentsDialog] = useState(false);
     const [selectedCourseForView, setSelectedCourseForView] = useState(null);
@@ -74,30 +74,38 @@ const AccountingPortal = () => {
         setSnackbar({ open: true, message, severity });
     }, []);
 
-    // Handler to load billing queue
-    const loadBillingQueue = useCallback(async () => {
-        setIsLoadingBillingQueue(true);
-        setBillingQueueError('');
-        logger.debug('[loadBillingQueue] Fetching billing queue...');
+    const fetchBillingQueue = useCallback(async () => {
         try {
-            const data = await api.getBillingQueue();
-            logger.debug('[loadBillingQueue] API Response:', data);
-            setBillingQueue(data || []);
-            logger.debug('[loadBillingQueue] State updated:', data || []);
-        } catch (err) {
-            const errorMsg = err.message || 'Failed to load queue.';
-            logger.error('Error loading billing queue:', err);
-            setBillingQueueError(errorMsg);
-            logger.debug('[loadBillingQueue] Error state set:', errorMsg);
-            setBillingQueue([]);
+            setIsLoadingBilling(true);
+            setBillingError('');
+            const response = await api.get('/api/v1/accounting/billing-queue');
+            setBillingQueue(response.data.data || []);
+        } catch (error) {
+            console.error('Error fetching billing queue:', error);
+            setBillingError('Failed to load billing queue. Please try again.');
         } finally {
-            setIsLoadingBillingQueue(false);
-            logger.debug('[loadBillingQueue] Finished.');
+            setIsLoadingBilling(false);
         }
     }, []);
 
+    const handleCreateInvoice = async (courseId) => {
+        try {
+            const response = await api.post('/api/v1/accounting/invoices', { courseId });
+            showSnackbar(response.data.message || 'Invoice created successfully', 'success');
+            
+            // Refresh both billing queue and invoices
+            await Promise.all([
+                fetchBillingQueue(),
+                fetchInvoices()
+            ]);
+        } catch (error) {
+            console.error('Error creating invoice:', error);
+            showSnackbar('Failed to create invoice. Please try again.', 'error');
+        }
+    };
+
     // Handler to load invoices
-    const loadInvoices = useCallback(async () => {
+    const fetchInvoices = useCallback(async () => {
         setIsLoadingInvoices(true);
         setInvoicesError('');
         logger.debug('[loadInvoices] Fetching invoices...');
@@ -121,11 +129,11 @@ const AccountingPortal = () => {
     // Load data based on selected view
     useEffect(() => {
         if (selectedView === 'billingReady') {
-            loadBillingQueue();
+            fetchBillingQueue();
         } else if (selectedView === 'receivables') {
-            loadInvoices(); // Load invoices for AR view
+            fetchInvoices(); // Load invoices for AR view
         }
-    }, [selectedView, loadBillingQueue, loadInvoices]);
+    }, [selectedView, fetchBillingQueue, fetchInvoices]);
 
     const handleLogout = () => {
         // Construct and show message
@@ -141,22 +149,6 @@ const AccountingPortal = () => {
     };
 
     // --- Action Handlers ---
-    const handleCreateInvoiceClick = async (course) => {
-        logger.debug("Create Invoice clicked for course:", course);
-        try {
-            const response = await api.createInvoice(course.course_id);
-            if (response.success) {
-                setSnackbar({ open: true, message: response.message || 'Invoice created!', severity: 'success' });
-                loadBillingQueue();
-            } else {
-                setSnackbar({ open: true, message: response.message || 'Failed to create invoice.', severity: 'error' });
-            }
-        } catch (err) {
-            logger.error("Error creating invoice:", err);
-            setSnackbar({ open: true, message: err.message || 'An error occurred.', severity: 'error' });
-        }
-    };
-
     const handleReviewCourseClick = (course_id) => {
         logger.debug("Review/View Details clicked for course:", course_id);
         setSelectedCourseForView(course_id);
@@ -221,15 +213,24 @@ const AccountingPortal = () => {
         logger.debug(`[renderSelectedView] Rendering view: ${selectedView}`);
         switch (selectedView) {
             case 'billingReady':
-                logger.debug(`[renderSelectedView: billingReady] State: isLoading=${isLoadingBillingQueue}, error=${billingQueueError}, queue=${JSON.stringify(billingQueue)}`);
-                if (isLoadingBillingQueue) return <CircularProgress />;
-                if (billingQueueError) return <Alert severity="error">{billingQueueError}</Alert>;
+                logger.debug(`[renderSelectedView: billingReady] State: isLoading=${isLoadingBilling}, error=${billingError}, queue=${JSON.stringify(billingQueue)}`);
+                if (isLoadingBilling) return <CircularProgress />;
+                if (billingError) return <Alert severity="error">{billingError}</Alert>;
                 return (
-                    <ReadyForBillingTable 
-                        courses={billingQueue} 
-                        onCreateInvoiceClick={handleCreateInvoiceClick}
-                        onReviewClick={handleReviewCourseClick}
-                    />
+                    <Box>
+                        <Typography variant="h4" gutterBottom>
+                            Ready for Billing
+                        </Typography>
+                        <Typography variant="body2" color="textSecondary" sx={{ mb: 3 }}>
+                            Courses that have been marked as ready for billing by the Course Admin
+                        </Typography>
+                        <ReadyForBillingTable 
+                            courses={billingQueue} 
+                            onCreateInvoice={handleCreateInvoice}
+                            isLoading={isLoadingBilling}
+                            error={billingError}
+                        />
+                    </Box>
                 );
             case 'receivables':
                 if (isLoadingInvoices) return <CircularProgress />;
@@ -415,7 +416,7 @@ const AccountingPortal = () => {
             <Box component="main" sx={{ flexGrow: 1, p: 3 }}>
                  {/* Toolbar spacer */}
                 <Toolbar />
-                <Container maxWidth="lg">
+                <Container maxWidth="xl">
                      {/* Remove original welcome */}
                     {renderSelectedView()}
                 </Container>

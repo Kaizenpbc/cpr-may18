@@ -743,6 +743,8 @@ router.get('/courses/completed', asyncHandler(async (_req: Request, res: Respons
         cr.confirmed_end_time,
         cr.completed_at,
         cr.created_at,
+        cr.ready_for_billing,
+        cr.ready_for_billing_at,
         ct.name as course_type,
         o.name as organization_name,
         u.username as instructor_name,
@@ -1679,15 +1681,17 @@ router.get('/accounting/billing-queue', asyncHandler(async (req: Request, res: R
         (SELECT COUNT(*) FROM course_students cs WHERE cs.course_request_id = cr.id) as students_attended,
         COALESCE(cp.price_per_student, 50.00) as rate_per_student,
         (SELECT COUNT(*) FROM course_students cs WHERE cs.course_request_id = cr.id) * COALESCE(cp.price_per_student, 50.00) as total_amount,
-        u.username as instructor_name
+        u.username as instructor_name,
+        cr.ready_for_billing_at
       FROM course_requests cr
       JOIN organizations o ON cr.organization_id = o.id
       JOIN class_types ct ON cr.course_type_id = ct.id
       LEFT JOIN course_pricing cp ON cr.organization_id = cp.organization_id AND cr.course_type_id = cp.course_type_id AND cp.is_active = true
       LEFT JOIN users u ON cr.instructor_id = u.id
       WHERE cr.status = 'completed'
+      AND cr.ready_for_billing = true
       AND cr.id NOT IN (SELECT course_id FROM invoices WHERE course_id IS NOT NULL)
-      ORDER BY cr.completed_at DESC
+      ORDER BY cr.ready_for_billing_at DESC
     `);
 
     res.json({
@@ -2936,6 +2940,45 @@ router.get('/admin/courses/:courseId/students', authenticateToken, asyncHandler(
       throw error;
     }
     throw new AppError(500, errorCodes.DB_QUERY_ERROR, 'Failed to fetch course students');
+  }
+}));
+
+// Mark course as ready for billing
+router.put('/courses/:courseId/ready-for-billing', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const { courseId } = req.params;
+
+    // First check if the course exists and is completed
+    const courseCheck = await pool.query(`
+      SELECT id, status FROM course_requests WHERE id = $1
+    `, [courseId]);
+
+    if (courseCheck.rows.length === 0) {
+      throw new AppError(404, errorCodes.RESOURCE_NOT_FOUND, 'Course not found');
+    }
+
+    if (courseCheck.rows[0].status !== 'completed') {
+      throw new AppError(400, errorCodes.VALIDATION_ERROR, 'Only completed courses can be marked as ready for billing');
+    }
+
+    // Update the course to mark it as ready for billing
+    const result = await pool.query(`
+      UPDATE course_requests 
+      SET ready_for_billing = true,
+          ready_for_billing_at = CURRENT_TIMESTAMP,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1
+      RETURNING *
+    `, [courseId]);
+
+    res.json({
+      success: true,
+      message: 'Course marked as ready for billing',
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error marking course as ready for billing:', error);
+    throw error;
   }
 }));
 

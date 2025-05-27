@@ -24,7 +24,7 @@ import {
   FormControlLabel,
   Switch,
 } from '@mui/material';
-import { Edit as EditIcon, Delete as DeleteIcon, Add as AddIcon, Schedule as ScheduleIcon, CalendarToday as CalendarIcon, Cancel as CancelIcon, Visibility as ViewIcon } from '@mui/icons-material';
+import { Edit as EditIcon, Delete as DeleteIcon, Add as AddIcon, Schedule as ScheduleIcon, CalendarToday as CalendarIcon, Cancel as CancelIcon, Visibility as ViewIcon, AttachMoney as BillingIcon } from '@mui/icons-material';
 import { api } from '../../../services/api';
 import InstructorDashboard from './InstructorDashboard';
 import AdminViewStudentsDialog from '../../dialogs/AdminViewStudentsDialog';
@@ -566,6 +566,16 @@ const InstructorManagement: React.FC = () => {
     setSelectedCourseForStudents(null);
   };
 
+  const handleReadyForBilling = async (courseId: number) => {
+    try {
+      await api.put(`/api/v1/courses/${courseId}/ready-for-billing`);
+      setSuccess('Course marked as ready for billing');
+      fetchCompletedCourses();
+    } catch (err) {
+      setError('Failed to mark course as ready for billing');
+    }
+  };
+
   return (
     <Box>
       {error && (
@@ -975,15 +985,27 @@ const InstructorManagement: React.FC = () => {
                     <Chip label={course.status} color="info" size="small" />
                   </TableCell>
                   <TableCell>
-                    <Button
-                      variant="outlined"
-                      color="primary"
-                      size="small"
-                      startIcon={<ViewIcon />}
-                      onClick={() => handleViewStudentsOpen(course)}
-                    >
-                      View Students
-                    </Button>
+                    <Stack direction="row" spacing={1}>
+                      <Button
+                        variant="outlined"
+                        color="primary"
+                        size="small"
+                        startIcon={<ViewIcon />}
+                        onClick={() => handleViewStudentsOpen(course)}
+                      >
+                        View Students
+                      </Button>
+                      <Button
+                        variant="contained"
+                        color="success"
+                        size="small"
+                        startIcon={<BillingIcon />}
+                        onClick={() => handleReadyForBilling(course.id)}
+                        disabled={course.ready_for_billing}
+                      >
+                        {course.ready_for_billing ? 'Sent to Billing' : 'Ready for Billing'}
+                      </Button>
+                    </Stack>
                   </TableCell>
                 </TableRow>
               ))}

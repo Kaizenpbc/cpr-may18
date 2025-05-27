@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
     Table,
     TableBody,
@@ -10,81 +10,112 @@ import {
     Button,
     Box,
     Typography,
-    Tooltip,
-    IconButton
+    Chip,
+    CircularProgress,
+    Alert
 } from '@mui/material';
-import VisibilityIcon from '@mui/icons-material/Visibility';
-import ReceiptLongIcon from '@mui/icons-material/ReceiptLong';
-import { formatDate } from '../../utils/formatters';
+import { Receipt as InvoiceIcon } from '@mui/icons-material';
+import { formatDate, formatCurrency } from '../../utils/formatters';
 
-const ReadyForBillingTable = ({ courses, onCreateInvoiceClick, onReviewClick }) => {
+const ReadyForBillingTable = ({ courses, onCreateInvoice, isLoading, error }) => {
+    const [creatingInvoice, setCreatingInvoice] = useState({});
+
+    const handleCreateInvoice = async (courseId) => {
+        setCreatingInvoice(prev => ({ ...prev, [courseId]: true }));
+        try {
+            await onCreateInvoice(courseId);
+        } finally {
+            setCreatingInvoice(prev => ({ ...prev, [courseId]: false }));
+        }
+    };
+
+    if (isLoading) {
+        return (
+            <Box sx={{ display: 'flex', justifyContent: 'center', p: 3 }}>
+                <CircularProgress />
+            </Box>
+        );
+    }
+
+    if (error) {
+        return (
+            <Alert severity="error" sx={{ mt: 2 }}>
+                {error}
+            </Alert>
+        );
+    }
 
     if (!courses || courses.length === 0) {
-        return <Typography sx={{ mt: 2 }}>No courses currently ready for billing.</Typography>;
+        return (
+            <Box sx={{ textAlign: 'center', py: 4 }}>
+                <Typography variant="body1" color="textSecondary">
+                    No courses ready for billing at this time.
+                </Typography>
+                <Typography variant="body2" color="textSecondary" sx={{ mt: 1 }}>
+                    Completed courses marked as "Ready for Billing" by Course Admin will appear here.
+                </Typography>
+            </Box>
+        );
     }
 
     return (
-        <TableContainer component={Paper} sx={{ mt: 2 }}>
-            <Table stickyHeader aria-label="ready for billing table">
+        <TableContainer component={Paper}>
+            <Table>
                 <TableHead>
                     <TableRow>
-                        <TableCell sx={{ fontWeight: 'bold' }}>System Date</TableCell>
-                        <TableCell sx={{ fontWeight: 'bold' }}>Date Completed</TableCell>
-                        <TableCell sx={{ fontWeight: 'bold' }}>Course Number</TableCell>
-                        <TableCell sx={{ fontWeight: 'bold' }}>Organization</TableCell>
-                        <TableCell sx={{ fontWeight: 'bold' }}>Location</TableCell>
-                        <TableCell sx={{ fontWeight: 'bold' }}>Course Type</TableCell>
-                        <TableCell sx={{ fontWeight: 'bold' }}>Students Registered</TableCell>
-                        <TableCell sx={{ fontWeight: 'bold' }}>Students Attendance</TableCell>
-                        <TableCell sx={{ fontWeight: 'bold' }}>Rate</TableCell>
-                        <TableCell sx={{ fontWeight: 'bold' }}>Total Cost</TableCell>
-                        <TableCell sx={{ fontWeight: 'bold' }}>Status</TableCell>
-                        <TableCell align="center" sx={{ fontWeight: 'bold' }}>Actions</TableCell>
+                        <TableCell>Date Completed</TableCell>
+                        <TableCell>Organization</TableCell>
+                        <TableCell>Course Type</TableCell>
+                        <TableCell>Location</TableCell>
+                        <TableCell>Instructor</TableCell>
+                        <TableCell align="center">Students Attended</TableCell>
+                        <TableCell align="right">Rate/Student</TableCell>
+                        <TableCell align="right">Total Amount</TableCell>
+                        <TableCell align="center">Actions</TableCell>
                     </TableRow>
                 </TableHead>
                 <TableBody>
-                    {courses.map((course, index) => (
-                        <TableRow 
-                            key={course.courseid}
-                            hover
-                            sx={{ 
-                                backgroundColor: index % 2 !== 0 ? '#f9f9f9' : 'inherit'
-                            }}
-                        >
-                            <TableCell>{formatDate(course.systemdate)}</TableCell> 
-                            <TableCell>{formatDate(course.datecompleted)}</TableCell> 
-                            <TableCell>{course.coursenumber || '-'}</TableCell>
-                            <TableCell>{course.organizationname || '-'}</TableCell>
-                            <TableCell>{course.location || '-'}</TableCell>
-                            <TableCell>{course.coursetypename || '-'}</TableCell>
-                            <TableCell align="center">{course.studentsregistered ?? '-'}</TableCell>
-                            <TableCell align="center">{course.studentsattendance ?? '-'}</TableCell>
-                            <TableCell align="right">
-                                {course.rateperstudent != null ? `$${parseFloat(course.rateperstudent).toFixed(2)}` : 'N/A'}
+                    {courses.map((course) => (
+                        <TableRow key={course.course_id}>
+                            <TableCell>{formatDate(course.date_completed)}</TableCell>
+                            <TableCell>
+                                <Typography variant="body2" fontWeight="medium">
+                                    {course.organization_name}
+                                </Typography>
+                                <Typography variant="caption" color="textSecondary">
+                                    {course.contact_email}
+                                </Typography>
                             </TableCell>
-                            <TableCell align="center">{'-'} {/* Cost Placeholder */}</TableCell>
-                            <TableCell>{course.status || '-'}</TableCell>
+                            <TableCell>{course.course_type_name}</TableCell>
+                            <TableCell>{course.location}</TableCell>
+                            <TableCell>{course.instructor_name}</TableCell>
                             <TableCell align="center">
-                                <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}>
-                                     <Tooltip title="Review Course/Students">
-                                        <IconButton 
-                                            color="info"
-                                            size="small"
-                                            onClick={() => onReviewClick(course.courseid)}
-                                        >
-                                            <VisibilityIcon fontSize="small" />
-                                        </IconButton>
-                                    </Tooltip>
-                                     <Tooltip title="Create Invoice">
-                                        <IconButton 
-                                            color="success"
-                                            size="small"
-                                            onClick={() => onCreateInvoiceClick(course)}
-                                        >
-                                            <ReceiptLongIcon fontSize="small" />
-                                        </IconButton>
-                                    </Tooltip>
-                                </Box>
+                                <Chip 
+                                    label={course.students_attended} 
+                                    size="small" 
+                                    color="primary"
+                                    variant="outlined"
+                                />
+                            </TableCell>
+                            <TableCell align="right">
+                                {formatCurrency(course.rate_per_student)}
+                            </TableCell>
+                            <TableCell align="right">
+                                <Typography variant="body2" fontWeight="bold" color="primary">
+                                    {formatCurrency(course.total_amount)}
+                                </Typography>
+                            </TableCell>
+                            <TableCell align="center">
+                                <Button
+                                    variant="contained"
+                                    color="primary"
+                                    size="small"
+                                    startIcon={<InvoiceIcon />}
+                                    onClick={() => handleCreateInvoice(course.course_id)}
+                                    disabled={creatingInvoice[course.course_id]}
+                                >
+                                    {creatingInvoice[course.course_id] ? 'Creating...' : 'Create Invoice'}
+                                </Button>
                             </TableCell>
                         </TableRow>
                     ))}
