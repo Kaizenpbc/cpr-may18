@@ -56,8 +56,10 @@ const TransactionHistoryView = () => {
             logger.debug('[fetchOrganizations] Fetching organizations...'); // Log start
             const orgData = await api.getOrganizations(); 
             logger.debug('[fetchOrganizations] API Response:', orgData); // Log raw response
-            setOrganizations(orgData || []);
-            logger.debug('[fetchOrganizations] State updated with:', orgData || []); // Log what was set
+            // Extract data array from API response
+            const organizations = orgData?.data || orgData || [];
+            setOrganizations(Array.isArray(organizations) ? organizations : []);
+            logger.debug('[fetchOrganizations] State updated with:', organizations); // Log what was set
         } catch (err) {
             logger.error("Error fetching organizations for filter:", err);
             // Handle error - maybe show a snackbar or log it
@@ -78,15 +80,15 @@ const TransactionHistoryView = () => {
         if (searchTerm) {
             const lowerSearch = searchTerm.toLowerCase();
             result = result.filter(inv => 
-                inv.invoicenumber?.toLowerCase().includes(lowerSearch) ||
-                inv.coursenumber?.toLowerCase().includes(lowerSearch) ||
-                inv.organizationname?.toLowerCase().includes(lowerSearch)
+                inv.invoice_number?.toLowerCase().includes(lowerSearch) ||
+                inv.course_type_name?.toLowerCase().includes(lowerSearch) ||
+                inv.organization_name?.toLowerCase().includes(lowerSearch)
             );
         }
 
         // Apply Organization filter
         if (selectedOrgId) {
-            result = result.filter(inv => inv.organizationid === selectedOrgId);
+            result = result.filter(inv => inv.organization_id === parseInt(selectedOrgId));
         }
 
         // Apply Month filter (Invoice Date)
@@ -99,8 +101,8 @@ const TransactionHistoryView = () => {
                 nextMonth.setMonth(start.getMonth() + 1);
                 
                 result = result.filter(inv => {
-                    if (!inv.invoicedate) return false;
-                    const invoiceDate = new Date(inv.invoicedate);
+                    if (!inv.invoice_date) return false;
+                    const invoiceDate = new Date(inv.invoice_date);
                     // Check if invoiceDate is >= start and < nextMonth
                     return invoiceDate >= start && invoiceDate < nextMonth;
                 });
@@ -110,7 +112,7 @@ const TransactionHistoryView = () => {
         // Apply Status filter
         if (selectedStatus) {
             // Case-insensitive comparison is safer
-            result = result.filter(inv => inv.paymentstatus?.toLowerCase() === selectedStatus.toLowerCase());
+            result = result.filter(inv => inv.payment_status?.toLowerCase() === selectedStatus.toLowerCase());
         }
 
         logger.debug('[TransactionHistory] Applying filters. Result length:', result.length);
@@ -155,9 +157,9 @@ const TransactionHistoryView = () => {
                                 onChange={(e) => setSelectedOrgId(e.target.value)}
                             >
                                 <MenuItem value=""><em>All Organizations</em></MenuItem>
-                                {organizations.sort((a, b) => a.organizationname.localeCompare(b.organizationname)).map((org) => (
-                                    <MenuItem key={org.organizationid} value={org.organizationid}>
-                                        {org.organizationname}
+                                {Array.isArray(organizations) && organizations.sort((a, b) => a.name.localeCompare(b.name)).map((org) => (
+                                    <MenuItem key={org.id} value={org.id}>
+                                        {org.name}
                                     </MenuItem>
                                 ))}
                             </Select>

@@ -70,30 +70,30 @@ const InvoiceHistoryTable = ({ invoices = [] }) => {
                 <TableBody>
                     {invoices.map((invoice, index) => (
                         <TableRow 
-                            key={invoice.invoiceid} 
+                            key={invoice.invoice_id || index} 
                             hover 
                             sx={{ backgroundColor: index % 2 !== 0 ? '#f9f9f9' : 'inherit'}}
                         >
-                            <TableCell>{invoice.invoicenumber}</TableCell> 
-                            <TableCell>{formatDate(invoice.invoicedate)}</TableCell> 
-                            <TableCell>{formatDate(invoice.duedate)}</TableCell> 
+                            <TableCell>{invoice.invoice_number}</TableCell> 
+                            <TableCell>{formatDate(invoice.invoice_date)}</TableCell> 
+                            <TableCell>{formatDate(invoice.due_date)}</TableCell> 
                             <TableCell>
                                 {/* Optionally link to org detail page */}
-                                <MuiLink component={RouterLink} to={`/accounting/organizations/${invoice.organizationid}`} underline="hover">
-                                    {invoice.organizationname || '-'}
+                                <MuiLink component={RouterLink} to={`/accounting/organizations/${invoice.organization_id}`} underline="hover">
+                                    {invoice.organization_name || '-'}
                                 </MuiLink>
                             </TableCell>
-                            <TableCell>{invoice.coursenumber || '-'}</TableCell>
+                            <TableCell>{invoice.course_type_name || '-'}</TableCell>
                             <TableCell align="right">{formatCurrency(invoice.amount)}</TableCell>
                             <TableCell align="center">
                                 <Chip 
-                                    label={invoice.paymentstatus || 'Unknown'} 
-                                    color={getStatusChipColor(invoice.paymentstatus)} 
+                                    label={invoice.payment_status || 'Unknown'} 
+                                    color={getStatusChipColor(invoice.payment_status)} 
                                     size="small"
                                 />
                             </TableCell>
-                            <TableCell>{invoice.agingBucket || '-'}</TableCell> 
-                            <TableCell>{invoice.emailsentat ? formatDate(invoice.emailsentat) : '-'}</TableCell>
+                            <TableCell>{invoice.aging_bucket || '-'}</TableCell> 
+                            <TableCell>{invoice.paid_date ? formatDate(invoice.paid_date) : '-'}</TableCell>
                         </TableRow>
                     ))}
                 </TableBody>
