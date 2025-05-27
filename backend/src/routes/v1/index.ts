@@ -1808,10 +1808,10 @@ router.get('/accounting/invoices', asyncHandler(async (req: Request, res: Respon
         cr.location,
         ct.name as course_type_name,
         cr.completed_at as date_completed,
-        COALESCE(SUM(p.amount), 0) as paid_to_date,
-        i.amount - COALESCE(SUM(p.amount), 0) as balance_due,
+        0 as paid_to_date,
+        i.amount as balance_due,
         CASE 
-          WHEN i.amount - COALESCE(SUM(p.amount), 0) <= 0 THEN 'paid'
+          WHEN i.paid_date IS NOT NULL THEN 'paid'
           WHEN CURRENT_DATE > i.due_date THEN 'overdue'
           ELSE 'pending'
         END as payment_status,
@@ -1826,10 +1826,6 @@ router.get('/accounting/invoices', asyncHandler(async (req: Request, res: Respon
       JOIN organizations o ON i.organization_id = o.id
       LEFT JOIN course_requests cr ON i.course_request_id = cr.id
       LEFT JOIN class_types ct ON cr.course_type_id = ct.id
-      LEFT JOIN payments p ON i.id = p.invoice_id
-      GROUP BY i.id, i.invoice_number, i.organization_id, i.course_request_id, i.created_at, 
-               i.due_date, i.amount, i.status, i.students_billed, i.paid_date, 
-               o.name, o.contact_email, cr.location, ct.name, cr.completed_at
       ORDER BY i.created_at DESC
     `);
 
