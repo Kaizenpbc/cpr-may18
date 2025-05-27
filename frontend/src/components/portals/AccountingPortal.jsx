@@ -22,52 +22,52 @@ import {
 } from '@mui/material';
 import {
     ReceiptLong as BillingIcon, 
-    RequestQuote as ReceivablesIcon, // Example icon
-    History as HistoryIcon, // Add History icon
-    Assessment as ReportsIcon, // Add Reports icon
+    RequestQuote as ReceivablesIcon,
+    History as HistoryIcon,
+    Assessment as ReportsIcon,
     Logout as LogoutIcon,
-    EditCalendar as ScheduleIcon,
-    ListAlt as ListIcon,
-    VpnKey as PasswordIcon,
-    School as ClassManagementIcon,
-    Groups as StudentsIcon,
     AttachMoney as PricingIcon
 } from '@mui/icons-material';
-import ReadyForBillingTable from '../tables/ReadyForBillingTable'; // Import the table
-import AccountsReceivableTable from '../tables/AccountsReceivableTable'; // Import AR table
-// Import ViewStudentsDialog if needed for the Review button
+import ReadyForBillingTable from '../tables/ReadyForBillingTable';
+import AccountsReceivableTable from '../tables/AccountsReceivableTable';
 import ViewStudentsDialog from '../dialogs/ViewStudentsDialog'; 
-import InvoiceDetailDialog from '../dialogs/InvoiceDetailDialog'; // Import Invoice Detail Dialog
-import RecordPaymentDialog from '../dialogs/RecordPaymentDialog'; // Import Record Payment Dialog
+import InvoiceDetailDialog from '../dialogs/InvoiceDetailDialog';
+import RecordPaymentDialog from '../dialogs/RecordPaymentDialog';
 import TransactionHistoryView from '../../components/views/TransactionHistoryView';
 import ReportsView from '../../components/views/ReportsView';
-import CoursePricingSetup from '../accounting/CoursePricingSetup'; // Add this import
+import CoursePricingSetup from '../accounting/CoursePricingSetup';
 
 const drawerWidth = 240;
 
 const AccountingPortal = () => {
     const { user, logout } = useAuth();
     const navigate = useNavigate();
-    const [selectedView, setSelectedView] = useState('billingReady'); // Default view
+    const [selectedView, setSelectedView] = useState('billingReady');
+    
     // State for Billing Ready view
     const [billingQueue, setBillingQueue] = useState([]);
     const [isLoadingBilling, setIsLoadingBilling] = useState(true);
     const [billingError, setBillingError] = useState('');
+    
     // State for View Students dialog
     const [showViewStudentsDialog, setShowViewStudentsDialog] = useState(false);
     const [selectedCourseForView, setSelectedCourseForView] = useState(null);
+    
     // State for success/error messages
     const [snackbar, setSnackbar] = useState({ open: false, message: '', severity: 'success' });
-    // Add state for AR view
+    
+    // State for AR view
     const [invoices, setInvoices] = useState([]);
     const [isLoadingInvoices, setIsLoadingInvoices] = useState(false);
     const [invoicesError, setInvoicesError] = useState('');
-    // Add state for Invoice Detail Dialog
+    
+    // State for Invoice Detail Dialog
     const [showInvoiceDetailDialog, setShowInvoiceDetailDialog] = useState(false);
     const [selectedInvoiceForDetail, setSelectedInvoiceForDetail] = useState(null);
-    // Add state for Record Payment Dialog
+    
+    // State for Record Payment Dialog
     const [showRecordPaymentDialog, setShowRecordPaymentDialog] = useState(false);
-    const [selectedInvoiceForPayment, setSelectedInvoiceForPayment] = useState(null); // Store the whole invoice object
+    const [selectedInvoiceForPayment, setSelectedInvoiceForPayment] = useState(null);
 
     // Add showSnackbar helper
     const showSnackbar = useCallback((message, severity = 'success') => {
@@ -131,24 +131,22 @@ const AccountingPortal = () => {
         if (selectedView === 'billingReady') {
             fetchBillingQueue();
         } else if (selectedView === 'receivables') {
-            fetchInvoices(); // Load invoices for AR view
+            fetchInvoices();
         }
     }, [selectedView, fetchBillingQueue, fetchInvoices]);
 
     const handleLogout = () => {
-        // Construct and show message
         const firstName = user?.first_name || 'Accounting User';
         const logoutMessage = `Goodbye ${firstName}, Have a Great Day!`;
         showSnackbar(logoutMessage, 'info'); 
         
-        // Delay logout
         setTimeout(() => {
             logout();
             navigate('/');
         }, 1500); 
     };
 
-    // --- Action Handlers ---
+    // Action Handlers
     const handleReviewCourseClick = (course_id) => {
         logger.debug("Review/View Details clicked for course:", course_id);
         setSelectedCourseForView(course_id);
@@ -160,34 +158,28 @@ const AccountingPortal = () => {
         setSelectedCourseForView(null);
     };
 
-    // Open Record Payment Dialog
     const handleRecordPaymentClick = (invoice) => {
         logger.debug("Record Payment clicked for invoice:", invoice);
         setSelectedInvoiceForPayment(invoice);
         setShowRecordPaymentDialog(true);
     };
 
-    // Close Record Payment Dialog
     const handleRecordPaymentDialogClose = () => {
         setShowRecordPaymentDialog(false);
         setSelectedInvoiceForPayment(null);
     };
 
-    // Handler after payment is successfully recorded in the dialog
     const handlePaymentSuccessfullyRecorded = (message) => {
         setSnackbar({ open: true, message: message, severity: 'success' });
-        // Refresh the invoice list to show updated status and potentially new totals
         fetchInvoices(); 
     };
 
-    // handleViewDetailsClick can likely reuse handleReviewCourseClick
     const handleViewDetailsClick = (invoice_id) => {
         logger.debug("View Details clicked for invoice:", invoice_id);
         setSelectedInvoiceForDetail(invoice_id);
         setShowInvoiceDetailDialog(true);
     };
 
-    // Close handler for Invoice Detail Dialog
     const handleInvoiceDetailDialogClose = () => {
         setShowInvoiceDetailDialog(false);
         setSelectedInvoiceForDetail(null);
@@ -207,7 +199,6 @@ const AccountingPortal = () => {
         setSelectedInvoiceForDetail(selectedInvoice);
         setShowInvoiceDetailDialog(true);
     };
-    // --- End Action Handlers ---
 
     const renderSelectedView = () => {
         logger.debug(`[renderSelectedView] Rendering view: ${selectedView}`);
@@ -259,7 +250,6 @@ const AccountingPortal = () => {
 
     return (
         <Box sx={{ display: 'flex' }}>
-            {/* --- AppBar --- */}
             <AppBar
                 position="fixed"
                 sx={{ zIndex: (theme) => theme.zIndex.drawer + 1 }}
@@ -274,7 +264,6 @@ const AccountingPortal = () => {
                 </Toolbar>
             </AppBar>
 
-             {/* --- Drawer --- */}
             <Drawer
                 variant="permanent"
                 sx={{
@@ -286,11 +275,9 @@ const AccountingPortal = () => {
                     },
                 }}
             >
-                 {/* Toolbar spacer */}
-                 <Toolbar />
-                 <Box sx={{ overflow: 'auto' }}>
-                     <List>
-                        {/* Billing Ready Item - Apply Styles */}
+                <Toolbar />
+                <Box sx={{ overflow: 'auto' }}>
+                    <List>
                         <ListItem 
                             component="div"
                             selected={selectedView === 'billingReady'}
@@ -311,7 +298,7 @@ const AccountingPortal = () => {
                             <ListItemIcon sx={{ color: 'inherit' }}><BillingIcon /></ListItemIcon>
                             <ListItemText primary="Ready for Billing" />
                         </ListItem>
-                        {/* Accounts Receivable Item - Apply Styles */}
+                        
                         <ListItem 
                             component="div"
                             selected={selectedView === 'receivables'}
@@ -332,12 +319,12 @@ const AccountingPortal = () => {
                             <ListItemIcon sx={{ color: 'inherit' }}><ReceivablesIcon /></ListItemIcon>
                             <ListItemText primary="Accounts Receivable" />
                         </ListItem>
-                        {/* Invoice History Item - NEW */}
+                        
                         <ListItem 
                             component="div"
                             selected={selectedView === 'history'}
                             onClick={() => setSelectedView('history')}
-                             sx={{ // Apply styling 
+                            sx={{ 
                                 cursor: 'pointer', 
                                 py: 1.5, 
                                 backgroundColor: selectedView === 'history' ? 'primary.light' : 'transparent',
@@ -353,12 +340,12 @@ const AccountingPortal = () => {
                             <ListItemIcon sx={{ color: 'inherit' }}><HistoryIcon /></ListItemIcon>
                             <ListItemText primary="Invoice History" />
                         </ListItem>
-                        {/* Reports Item - NEW */}
+                        
                         <ListItem 
                             component="div"
                             selected={selectedView === 'reports'}
                             onClick={() => setSelectedView('reports')}
-                             sx={{ // Apply styling 
+                            sx={{ 
                                 cursor: 'pointer', 
                                 py: 1.5, 
                                 backgroundColor: selectedView === 'reports' ? 'primary.light' : 'transparent',
@@ -374,12 +361,12 @@ const AccountingPortal = () => {
                             <ListItemIcon sx={{ color: 'inherit' }}><ReportsIcon /></ListItemIcon>
                             <ListItemText primary="Reports" />
                         </ListItem>
-                        {/* Course Pricing Setup Item - NEW */}
+                        
                         <ListItem 
                             component="div"
                             selected={selectedView === 'pricing'}
                             onClick={() => setSelectedView('pricing')}
-                             sx={{ // Apply styling 
+                            sx={{ 
                                 cursor: 'pointer', 
                                 py: 1.5, 
                                 backgroundColor: selectedView === 'pricing' ? 'primary.light' : 'transparent',
@@ -395,8 +382,9 @@ const AccountingPortal = () => {
                             <ListItemIcon sx={{ color: 'inherit' }}><PricingIcon /></ListItemIcon>
                             <ListItemText primary="Course Pricing Setup" />
                         </ListItem>
+                        
                         <Divider sx={{ my: 1 }} />
-                         {/* Logout Item - Apply Styles */}
+                        
                         <ListItem 
                             component="div"
                             onClick={handleLogout}
@@ -409,20 +397,17 @@ const AccountingPortal = () => {
                             <ListItemIcon><LogoutIcon /></ListItemIcon>
                             <ListItemText primary="Logout" />
                         </ListItem>
-                     </List>
-                 </Box>
+                    </List>
+                </Box>
             </Drawer>
-             {/* --- Main Content --- */}
+            
             <Box component="main" sx={{ flexGrow: 1, p: 3 }}>
-                 {/* Toolbar spacer */}
                 <Toolbar />
                 <Container maxWidth="xl">
-                     {/* Remove original welcome */}
                     {renderSelectedView()}
                 </Container>
             </Box>
 
-            {/* View Students Dialog for Review button */}
             {showViewStudentsDialog && (
                 <ViewStudentsDialog
                     open={showViewStudentsDialog}
@@ -431,7 +416,6 @@ const AccountingPortal = () => {
                 />
             )}
 
-            {/* Invoice Detail Dialog */}
             {showInvoiceDetailDialog && (
                 <InvoiceDetailDialog 
                     open={showInvoiceDetailDialog}
@@ -441,7 +425,6 @@ const AccountingPortal = () => {
                 />
             )}
 
-            {/* Record Payment Dialog */}
             {showRecordPaymentDialog && selectedInvoiceForPayment && (
                 <RecordPaymentDialog
                     open={showRecordPaymentDialog}
@@ -451,12 +434,11 @@ const AccountingPortal = () => {
                 />
             )}
 
-            {/* Snackbar - Update anchorOrigin */}
             <Snackbar
                 open={snackbar.open}
                 autoHideDuration={6000}
                 onClose={() => setSnackbar({ ...snackbar, open: false })}
-                anchorOrigin={{ vertical: 'top', horizontal: 'center' }} // Set position
+                anchorOrigin={{ vertical: 'top', horizontal: 'center' }}
             >
                 <Alert onClose={() => setSnackbar({ ...snackbar, open: false })} severity={snackbar.severity} variant="filled" sx={{ width: '100%' }}>
                     {snackbar.message}
