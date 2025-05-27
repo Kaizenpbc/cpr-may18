@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
-import * as api from '../../services/api.ts';
+import { api, getBillingQueue, createInvoice, getInvoices } from '../../services/api';
 import logger from '../../utils/logger';
 import {
     Box,
@@ -78,8 +78,8 @@ const AccountingPortal = () => {
         try {
             setIsLoadingBilling(true);
             setBillingError('');
-            const response = await api.get('/api/v1/accounting/billing-queue');
-            setBillingQueue(response.data.data || []);
+            const response = await getBillingQueue();
+            setBillingQueue(response.data || []);
         } catch (error) {
             console.error('Error fetching billing queue:', error);
             setBillingError('Failed to load billing queue. Please try again.');
@@ -90,8 +90,8 @@ const AccountingPortal = () => {
 
     const handleCreateInvoice = async (courseId) => {
         try {
-            const response = await api.post('/api/v1/accounting/invoices', { courseId });
-            showSnackbar(response.data.message || 'Invoice created successfully', 'success');
+            const response = await createInvoice(courseId);
+            showSnackbar(response.message || 'Invoice created successfully', 'success');
             
             // Refresh both billing queue and invoices
             await Promise.all([
@@ -110,7 +110,7 @@ const AccountingPortal = () => {
         setInvoicesError('');
         logger.debug('[loadInvoices] Fetching invoices...');
         try {
-            const data = await api.getInvoices();
+            const data = await getInvoices();
             logger.debug('[loadInvoices] API Response:', data);
             setInvoices(data || []);
             logger.debug('[loadInvoices] State updated:', data || []);
@@ -177,7 +177,7 @@ const AccountingPortal = () => {
     const handlePaymentSuccessfullyRecorded = (message) => {
         setSnackbar({ open: true, message: message, severity: 'success' });
         // Refresh the invoice list to show updated status and potentially new totals
-        loadInvoices(); 
+        fetchInvoices(); 
     };
 
     // handleViewDetailsClick can likely reuse handleReviewCourseClick
