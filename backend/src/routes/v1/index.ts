@@ -1750,7 +1750,6 @@ router.post('/accounting/invoices', asyncHandler(async (req: Request, res: Respo
       const invoiceResult = await client.query(`
         INSERT INTO invoices (
           invoice_number,
-          course_id,
           organization_id,
           invoice_date,
           due_date,
@@ -1762,11 +1761,10 @@ router.post('/accounting/invoices', asyncHandler(async (req: Request, res: Respo
           students_attendance,
           rate_per_student
         )
-        VALUES ($1, $2, $3, CURRENT_DATE, CURRENT_DATE + INTERVAL '30 days', $4, 'pending', $5, $6, $7, $8, $9)
+        VALUES ($1, $2, CURRENT_DATE, CURRENT_DATE + INTERVAL '30 days', $3, 'pending', $4, $5, $6, $7, $8)
         RETURNING *
       `, [
         invoiceNumber,
-        courseId,
         course.organization_id,
         totalAmount,
         course.course_type_name,
@@ -1804,7 +1802,6 @@ router.get('/accounting/invoices', asyncHandler(async (req: Request, res: Respon
       SELECT 
         i.id as invoice_id,
         i.invoice_number,
-        i.course_id,
         i.organization_id,
         i.invoice_date,
         i.due_date,
@@ -1836,7 +1833,7 @@ router.get('/accounting/invoices', asyncHandler(async (req: Request, res: Respon
       FROM invoices i
       JOIN organizations o ON i.organization_id = o.id
       LEFT JOIN payments p ON i.id = p.invoice_id
-      GROUP BY i.id, i.invoice_number, i.course_id, i.organization_id, i.invoice_date, 
+      GROUP BY i.id, i.invoice_number, i.organization_id, i.invoice_date, 
                i.due_date, i.amount, i.status, i.course_type_name, i.location, 
                i.date_completed, i.students_attendance, i.rate_per_student, i.notes, 
                i.email_sent_at, o.name, o.contact_email
