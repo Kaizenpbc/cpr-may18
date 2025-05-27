@@ -292,7 +292,7 @@ export const createInvoice = async (courseId: number) => {
 
 export const getInvoices = async () => {
   const response = await api.get('/api/v1/accounting/invoices');
-  return response.data;
+  return response.data.data || [];
 };
 
 export const getInvoiceDetails = async (invoiceId: number) => {

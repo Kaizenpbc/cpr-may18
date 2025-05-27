@@ -1803,7 +1803,21 @@ router.get('/accounting/invoices', asyncHandler(async (req: Request, res: Respon
   try {
     const result = await pool.query(`
       SELECT 
-        i.*,
+        i.id as invoice_id,
+        i.invoice_number,
+        i.course_id,
+        i.organization_id,
+        i.invoice_date,
+        i.due_date,
+        i.amount,
+        i.status,
+        i.course_type_name,
+        i.location,
+        i.date_completed,
+        i.students_attendance,
+        i.rate_per_student,
+        i.notes,
+        i.email_sent_at,
         o.name as organization_name,
         o.contact_email,
         COALESCE(SUM(p.amount), 0) as paid_to_date,
@@ -1819,12 +1833,14 @@ router.get('/accounting/invoices', asyncHandler(async (req: Request, res: Respon
           WHEN CURRENT_DATE <= i.due_date + INTERVAL '60 days' THEN '31-60 days'
           WHEN CURRENT_DATE <= i.due_date + INTERVAL '90 days' THEN '61-90 days'
           ELSE '90+ days'
-        END as aging_bucket,
-        i.email_sent_at
+        END as aging_bucket
       FROM invoices i
       JOIN organizations o ON i.organization_id = o.id
       LEFT JOIN payments p ON i.id = p.invoice_id
-      GROUP BY i.id, o.name, o.contact_email
+      GROUP BY i.id, i.invoice_number, i.course_id, i.organization_id, i.invoice_date, 
+               i.due_date, i.amount, i.status, i.course_type_name, i.location, 
+               i.date_completed, i.students_attendance, i.rate_per_student, i.notes, 
+               i.email_sent_at, o.name, o.contact_email
       ORDER BY i.invoice_date DESC
     `);
 
@@ -1937,12 +1953,14 @@ router.get('/accounting/invoices/:id/payments', asyncHandler(async (req: Request
 
     const result = await pool.query(`
       SELECT 
-        p.*,
+        p.id,
+        p.invoice_id,
         p.amount as amount_paid,
-        p.payment_date as payment_date,
+        p.payment_date,
         p.payment_method,
         p.reference_number,
-        p.notes
+        p.notes,
+        p.created_at
       FROM payments p
       WHERE p.invoice_id = $1
       ORDER BY p.payment_date DESC
@@ -2903,7 +2921,7 @@ router.get('/admin/courses/:courseId/students', authenticateToken, asyncHandler(
 
     // Only admin users can access this endpoint
     if (userRole !== 'admin') {
-      throw new AppError(403, errorCodes.FORBIDDEN, 'Access denied. Admin role required.');
+      throw new AppError(403, errorCodes.AUTH_INSUFFICIENT_PERMISSIONS, 'Access denied. Admin role required.');
     }
 
     // Verify the course exists
