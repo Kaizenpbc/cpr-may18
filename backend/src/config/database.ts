@@ -232,6 +232,21 @@ const initializeDatabase = async () => {
         ) THEN 
           ALTER TABLE course_requests ADD COLUMN ready_for_billing_at TIMESTAMP WITH TIME ZONE;
         END IF;
+
+        -- Add invoiced column to track if course has been invoiced
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'course_requests' AND column_name = 'invoiced'
+        ) THEN 
+          ALTER TABLE course_requests ADD COLUMN invoiced BOOLEAN DEFAULT FALSE;
+        END IF;
+
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'course_requests' AND column_name = 'invoiced_at'
+        ) THEN 
+          ALTER TABLE course_requests ADD COLUMN invoiced_at TIMESTAMP WITH TIME ZONE;
+        END IF;
       END $$;
     `);
 
@@ -385,24 +400,101 @@ const initializeDatabase = async () => {
       CREATE TABLE IF NOT EXISTS invoices (
         id SERIAL PRIMARY KEY,
         invoice_number VARCHAR(50) NOT NULL UNIQUE,
-        course_id INTEGER REFERENCES course_requests(id),
+        course_request_id INTEGER REFERENCES course_requests(id),
         organization_id INTEGER NOT NULL REFERENCES organizations(id),
-        invoice_date DATE NOT NULL,
+        invoice_date DATE NOT NULL DEFAULT CURRENT_DATE,
         due_date DATE NOT NULL,
         amount DECIMAL(10,2) NOT NULL,
         status VARCHAR(20) NOT NULL DEFAULT 'pending',
         course_type_name VARCHAR(255),
         location VARCHAR(255),
         date_completed DATE,
-        students_attendance INTEGER,
+        students_billed INTEGER,
         rate_per_student DECIMAL(10,2),
         notes TEXT,
         email_sent_at TIMESTAMP WITH TIME ZONE,
+        posted_to_org BOOLEAN DEFAULT FALSE,
+        posted_to_org_at TIMESTAMP WITH TIME ZONE,
+        paid_date DATE,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
     console.log('✅ Invoices table created successfully');
+
+    // Add posted_to_org columns to invoices table if they don't exist
+    console.log('🔄 Enhancing invoices table with posting columns...');
+    await pool.query(`
+      DO $$ 
+      BEGIN 
+        -- Add posted_to_org column if it doesn't exist
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'invoices' AND column_name = 'posted_to_org'
+        ) THEN 
+          ALTER TABLE invoices ADD COLUMN posted_to_org BOOLEAN DEFAULT FALSE;
+        END IF;
+
+        -- Add posted_to_org_at column if it doesn't exist
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'invoices' AND column_name = 'posted_to_org_at'
+        ) THEN 
+          ALTER TABLE invoices ADD COLUMN posted_to_org_at TIMESTAMP WITH TIME ZONE;
+        END IF;
+
+        -- Update existing invoices to be posted (for backward compatibility)
+        UPDATE invoices 
+        SET posted_to_org = TRUE, posted_to_org_at = created_at 
+        WHERE posted_to_org IS NULL OR posted_to_org = FALSE;
+      END $$;
+    `);
+    console.log('✅ Invoices table enhanced with posting columns');
+
+    // Add missing columns to invoices table if they don't exist
+    console.log('🔄 Ensuring all invoice columns exist...');
+    await pool.query(`
+      DO $$ 
+      BEGIN 
+        -- Add invoice_date column if it doesn't exist
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'invoices' AND column_name = 'invoice_date'
+        ) THEN 
+          ALTER TABLE invoices ADD COLUMN invoice_date DATE DEFAULT CURRENT_DATE;
+          -- Update existing records to use created_at as invoice_date
+          UPDATE invoices SET invoice_date = created_at::date WHERE invoice_date IS NULL;
+        END IF;
+
+        -- Add paid_date column if it doesn't exist
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'invoices' AND column_name = 'paid_date'
+        ) THEN 
+          ALTER TABLE invoices ADD COLUMN paid_date DATE;
+        END IF;
+
+        -- Add students_billed column if it doesn't exist
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'invoices' AND column_name = 'students_billed'
+        ) THEN 
+          ALTER TABLE invoices ADD COLUMN students_billed INTEGER;
+        END IF;
+
+        -- Rename course_id to course_request_id if needed
+        IF EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'invoices' AND column_name = 'course_id'
+        ) AND NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'invoices' AND column_name = 'course_request_id'
+        ) THEN 
+          ALTER TABLE invoices RENAME COLUMN course_id TO course_request_id;
+        END IF;
+      END $$;
+    `);
+    console.log('✅ Invoice columns migration completed');
 
     // Create payments table if it doesn't exist
     console.log('💳 Creating payments table...');
@@ -415,11 +507,46 @@ const initializeDatabase = async () => {
         payment_method VARCHAR(50),
         reference_number VARCHAR(100),
         notes TEXT,
+        status VARCHAR(50) DEFAULT 'verified',
+        submitted_by_org_at TIMESTAMP WITH TIME ZONE,
+        verified_by_accounting_at TIMESTAMP WITH TIME ZONE,
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
     console.log('✅ Payments table created successfully');
+
+    // Add new columns to payments table if they don't exist
+    console.log('🔄 Enhancing payments table with new columns...');
+    await pool.query(`
+      DO $$ 
+      BEGIN 
+        -- Add status column if it doesn't exist
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'payments' AND column_name = 'status'
+        ) THEN 
+          ALTER TABLE payments ADD COLUMN status VARCHAR(50) DEFAULT 'verified';
+        END IF;
+
+        -- Add submitted_by_org_at column if it doesn't exist
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'payments' AND column_name = 'submitted_by_org_at'
+        ) THEN 
+          ALTER TABLE payments ADD COLUMN submitted_by_org_at TIMESTAMP WITH TIME ZONE;
+        END IF;
+
+        -- Add verified_by_accounting_at column if it doesn't exist
+        IF NOT EXISTS (
+          SELECT 1 FROM information_schema.columns 
+          WHERE table_name = 'payments' AND column_name = 'verified_by_accounting_at'
+        ) THEN 
+          ALTER TABLE payments ADD COLUMN verified_by_accounting_at TIMESTAMP WITH TIME ZONE;
+        END IF;
+      END $$;
+    `);
+    console.log('✅ Payments table enhanced with new columns');
 
     // Create course_pricing table if it doesn't exist
     console.log('💵 Creating course_pricing table...');

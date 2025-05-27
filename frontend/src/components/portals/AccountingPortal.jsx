@@ -26,7 +26,9 @@ import {
     History as HistoryIcon,
     Assessment as ReportsIcon,
     Logout as LogoutIcon,
-    AttachMoney as PricingIcon
+    AttachMoney as PricingIcon,
+    PictureAsPdf as DemoIcon,
+    VerifiedUser as VerificationIcon
 } from '@mui/icons-material';
 import ReadyForBillingTable from '../tables/ReadyForBillingTable';
 import AccountsReceivableTable from '../tables/AccountsReceivableTable';
@@ -36,6 +38,8 @@ import RecordPaymentDialog from '../dialogs/RecordPaymentDialog';
 import TransactionHistoryView from '../../components/views/TransactionHistoryView';
 import ReportsView from '../../components/views/ReportsView';
 import CoursePricingSetup from '../accounting/CoursePricingSetup';
+import PDFDemo from '../demo/PDFDemo';
+import PaymentVerificationView from '../views/PaymentVerificationView';
 
 const drawerWidth = 240;
 
@@ -188,7 +192,7 @@ const AccountingPortal = () => {
     const handleEmailInvoiceClick = (invoice_id) => {
         logger.debug(`[AccountingPortal] handleEmailInvoiceClick called for Invoice ID: ${invoice_id}`);
         
-        const selectedInvoice = invoices.find(inv => inv.invoice_id === invoice_id);
+        const selectedInvoice = invoices.find(inv => inv.invoiceid === invoice_id);
         if (!selectedInvoice) {
             logger.error(`[AccountingPortal] Could not find invoice data for ID ${invoice_id} in state.`);
             showSnackbar(`Error: Could not find invoice data for ID ${invoice_id}.`, 'error');
@@ -198,6 +202,21 @@ const AccountingPortal = () => {
         logger.debug('[AccountingPortal] Found selected invoice data, setting state to open dialog:', selectedInvoice);
         setSelectedInvoiceForDetail(selectedInvoice);
         setShowInvoiceDetailDialog(true);
+    };
+
+    const handlePostToOrgClick = async (invoice) => {
+        logger.debug(`[AccountingPortal] handlePostToOrgClick called for Invoice ID: ${invoice.invoiceid}`);
+        
+        try {
+            const response = await api.post(`/accounting/invoices/${invoice.invoiceid}/post-to-org`);
+            showSnackbar(response.data.message || 'Invoice posted to organization successfully', 'success');
+            
+            // Refresh invoices to update the UI
+            await fetchInvoices();
+        } catch (error) {
+            console.error('Error posting invoice to organization:', error);
+            showSnackbar('Failed to post invoice to organization. Please try again.', 'error');
+        }
     };
 
     const renderSelectedView = () => {
@@ -231,7 +250,8 @@ const AccountingPortal = () => {
                         invoices={invoices}
                         onRecordPaymentClick={handleRecordPaymentClick}
                         onViewDetailsClick={handleViewDetailsClick} 
-                        onEmailInvoiceClick={handleEmailInvoiceClick} 
+                        onEmailInvoiceClick={handleEmailInvoiceClick}
+                        onPostToOrgClick={handlePostToOrgClick} 
                     />
                 );
             case 'pricing': 
@@ -243,6 +263,12 @@ const AccountingPortal = () => {
             case 'reports': 
                 logger.debug('[renderSelectedView: reports]');
                 return <ReportsView />;
+            case 'demo': 
+                logger.debug('[renderSelectedView: demo]');
+                return <PDFDemo />;
+            case 'verification': 
+                logger.debug('[renderSelectedView: verification]');
+                return <PaymentVerificationView />;
             default:
                 return <Typography>Select a view</Typography>;
         }
@@ -381,6 +407,48 @@ const AccountingPortal = () => {
                         >
                             <ListItemIcon sx={{ color: 'inherit' }}><PricingIcon /></ListItemIcon>
                             <ListItemText primary="Course Pricing Setup" />
+                        </ListItem>
+                        
+                        <ListItem 
+                            component="div"
+                            selected={selectedView === 'verification'}
+                            onClick={() => setSelectedView('verification')}
+                            sx={{ 
+                                cursor: 'pointer', 
+                                py: 1.5, 
+                                backgroundColor: selectedView === 'verification' ? 'primary.light' : 'transparent',
+                                color: selectedView === 'verification' ? 'primary.contrastText' : 'inherit',
+                                '& .MuiListItemIcon-root': {
+                                    color: selectedView === 'verification' ? 'primary.contrastText' : 'inherit',
+                                },
+                                '&:hover': {
+                                    backgroundColor: selectedView === 'verification' ? 'primary.main' : 'action.hover',
+                                }
+                            }}
+                        >
+                            <ListItemIcon sx={{ color: 'inherit' }}><VerificationIcon /></ListItemIcon>
+                            <ListItemText primary="Payment Verification" />
+                        </ListItem>
+                        
+                        <ListItem 
+                            component="div"
+                            selected={selectedView === 'demo'}
+                            onClick={() => setSelectedView('demo')}
+                            sx={{ 
+                                cursor: 'pointer', 
+                                py: 1.5, 
+                                backgroundColor: selectedView === 'demo' ? 'primary.light' : 'transparent',
+                                color: selectedView === 'demo' ? 'primary.contrastText' : 'inherit',
+                                '& .MuiListItemIcon-root': {
+                                    color: selectedView === 'demo' ? 'primary.contrastText' : 'inherit',
+                                },
+                                '&:hover': {
+                                    backgroundColor: selectedView === 'demo' ? 'primary.main' : 'action.hover',
+                                }
+                            }}
+                        >
+                            <ListItemIcon sx={{ color: 'inherit' }}><DemoIcon /></ListItemIcon>
+                            <ListItemText primary="PDF Demo" />
                         </ListItem>
                         
                         <Divider sx={{ my: 1 }} />

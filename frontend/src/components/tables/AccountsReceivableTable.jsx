@@ -27,6 +27,7 @@ import VisibilityIcon from '@mui/icons-material/Visibility';
 import ReceiptLongIcon from '@mui/icons-material/ReceiptLong'; // Used for Billing Queue
 import PaymentIcon from '@mui/icons-material/Payment'; // For Record Payment
 import EmailIcon from '@mui/icons-material/Email'; // For Email Invoice
+import PostAddIcon from '@mui/icons-material/PostAdd'; // For Post to Org
 // Import shared formatters
 import { formatDate, getStatusChipColor } from '../../utils/formatters'; // Correct path
 
@@ -93,7 +94,8 @@ const AccountsReceivableTable = ({
     invoices, 
     onRecordPaymentClick, 
     onViewDetailsClick, 
-    onEmailInvoiceClick 
+    onEmailInvoiceClick,
+    onPostToOrgClick 
 }) => {
     const [expandedRowId, setExpandedRowId] = useState(null); // State to track expanded row
 
@@ -159,8 +161,8 @@ const AccountsReceivableTable = ({
                                 </TableCell>
                                 <TableCell>{invoice.coursenumber || '-'}</TableCell>
                                 <TableCell align="right">{`$${parseFloat(invoice.amount || 0).toFixed(2)}`}</TableCell>
-                                <TableCell align="right">{`$${parseFloat(invoice.paidToDate || 0).toFixed(2)}`}</TableCell>
-                                <TableCell align="right">{`$${parseFloat(invoice.balanceDue || 0).toFixed(2)}`}</TableCell>
+                                <TableCell align="right">{`$${parseFloat(invoice.paidtodate || 0).toFixed(2)}`}</TableCell>
+                                <TableCell align="right">{`$${parseFloat(invoice.balancedue || 0).toFixed(2)}`}</TableCell>
                                 <TableCell align="center">
                                     <Chip 
                                         label={invoice.paymentstatus || 'Unknown'} 
@@ -168,7 +170,7 @@ const AccountsReceivableTable = ({
                                         size="small"
                                     />
                                 </TableCell>
-                                <TableCell>{invoice.agingBucket || '-'}</TableCell>
+                                <TableCell>{invoice.agingbucket || '-'}</TableCell>
                                 <TableCell>{invoice.emailsentat ? formatDate(invoice.emailsentat) : '-'}</TableCell>
                                 <TableCell align="center">
                                     <Box sx={{ display: 'flex', gap: 0.5, justifyContent: 'center' }}> {/* Reduced gap */}
@@ -195,6 +197,19 @@ const AccountsReceivableTable = ({
                                             >
                                                 <VisibilityIcon fontSize="small" />
                                             </IconButton>
+                                        </Tooltip>
+                                        {/* Post to Org Button */}
+                                        <Tooltip title={invoice.posted_to_org ? "Already Posted to Organization" : "Post Invoice to Organization"}>
+                                            <span>
+                                                <IconButton 
+                                                    color="warning"
+                                                    size="small"
+                                                    onClick={() => onPostToOrgClick(invoice)}
+                                                    disabled={invoice.posted_to_org}
+                                                >
+                                                    <PostAddIcon fontSize="small" />
+                                                </IconButton>
+                                            </span>
                                         </Tooltip>
                                         {/* Email Button */}
                                          <Tooltip title={invoice.emailsentat ? "Resend Invoice Email" : "Email Invoice to Organization"}>

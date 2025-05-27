@@ -7,6 +7,7 @@ import bcrypt from 'bcryptjs';
 import { pool } from '../../config/database';
 import { generateTokens } from '../../utils/jwtUtils';
 import { authenticateToken } from '../../middleware/authMiddleware';
+import { PDFService } from '../../services/pdfService';
 
 const router = Router();
 
@@ -1690,6 +1691,7 @@ router.get('/accounting/billing-queue', asyncHandler(async (req: Request, res: R
       LEFT JOIN users u ON cr.instructor_id = u.id
       WHERE cr.status = 'completed'
       AND cr.ready_for_billing_at IS NOT NULL
+      AND (cr.invoiced IS NULL OR cr.invoiced = FALSE)
       ORDER BY cr.ready_for_billing_at DESC
     `);
 
@@ -1752,12 +1754,14 @@ router.post('/accounting/invoices', asyncHandler(async (req: Request, res: Respo
           invoice_number,
           organization_id,
           course_request_id,
+          invoice_date,
           amount,
           students_billed,
           status,
-          due_date
+          due_date,
+          posted_to_org
         )
-        VALUES ($1, $2, $3, $4, $5, 'pending', CURRENT_DATE + INTERVAL '30 days')
+        VALUES ($1, $2, $3, CURRENT_DATE, $4, $5, 'pending', CURRENT_DATE + INTERVAL '30 days', FALSE)
         RETURNING *
       `, [
         invoiceNumber,
@@ -1766,6 +1770,13 @@ router.post('/accounting/invoices', asyncHandler(async (req: Request, res: Respo
         totalAmount,
         course.students_attended
       ]);
+
+      // Mark the course as invoiced
+      await client.query(`
+        UPDATE course_requests 
+        SET invoiced = TRUE, invoiced_at = CURRENT_TIMESTAMP
+        WHERE id = $1
+      `, [courseId]);
 
       await client.query('COMMIT');
 
@@ -1788,40 +1799,73 @@ router.post('/accounting/invoices', asyncHandler(async (req: Request, res: Respo
   }
 }));
 
+// Post invoice to organization (make it visible in their Bills Payable)
+router.put('/accounting/invoices/:id/post-to-org', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    // Update invoice to mark it as posted to organization
+    const result = await pool.query(`
+      UPDATE invoices 
+      SET posted_to_org = TRUE,
+          posted_to_org_at = CURRENT_TIMESTAMP,
+          updated_at = CURRENT_TIMESTAMP
+      WHERE id = $1 AND posted_to_org = FALSE
+      RETURNING *
+    `, [id]);
+
+    if (result.rows.length === 0) {
+      throw new AppError(404, errorCodes.RESOURCE_NOT_FOUND, 'Invoice not found or already posted to organization');
+    }
+
+    res.json({
+      success: true,
+      message: 'Invoice posted to organization successfully',
+      data: result.rows[0]
+    });
+  } catch (error) {
+    console.error('Error posting invoice to organization:', error);
+    throw error;
+  }
+}));
+
 // Get all invoices
 router.get('/accounting/invoices', asyncHandler(async (req: Request, res: Response) => {
   try {
     const result = await pool.query(`
       SELECT 
-        i.id as invoice_id,
-        i.invoice_number,
-        i.organization_id,
-        i.course_request_id,
-        i.created_at as invoice_date,
-        i.due_date,
+        i.id as invoiceid,
+        i.invoice_number as invoicenumber,
+        i.organization_id as organizationid,
+        i.course_request_id as coursenumber,
+        COALESCE(i.invoice_date, i.created_at) as invoicedate,
+        i.due_date as duedate,
         i.amount,
         i.status,
         i.students_billed,
         i.paid_date,
-        o.name as organization_name,
-        o.contact_email,
+        i.posted_to_org,
+        i.posted_to_org_at,
+        i.email_sent_at as emailsentat,
+        o.name as organizationname,
+        o.contact_email as contactemail,
         cr.location,
         ct.name as course_type_name,
         cr.completed_at as date_completed,
-        0 as paid_to_date,
-        i.amount as balance_due,
+        COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.invoice_id = i.id AND p.status = 'verified'), 0) as paidtodate,
+        (i.amount - COALESCE((SELECT SUM(p.amount) FROM payments p WHERE p.invoice_id = i.id AND p.status = 'verified'), 0)) as balancedue,
         CASE 
           WHEN i.paid_date IS NOT NULL THEN 'paid'
           WHEN CURRENT_DATE > i.due_date THEN 'overdue'
           ELSE 'pending'
-        END as payment_status,
+        END as paymentstatus,
         CASE 
           WHEN CURRENT_DATE <= i.due_date THEN 'current'
           WHEN CURRENT_DATE <= i.due_date + INTERVAL '30 days' THEN '1-30 days'
           WHEN CURRENT_DATE <= i.due_date + INTERVAL '60 days' THEN '31-60 days'
           WHEN CURRENT_DATE <= i.due_date + INTERVAL '90 days' THEN '61-90 days'
           ELSE '90+ days'
-        END as aging_bucket
+        END as agingbucket
       FROM invoices i
       JOIN organizations o ON i.organization_id = o.id
       LEFT JOIN course_requests cr ON i.course_request_id = cr.id
@@ -2017,6 +2061,108 @@ router.post('/accounting/invoices/:id/payments', asyncHandler(async (req: Reques
   }
 }));
 
+// Generate PDF for invoice
+router.get('/accounting/invoices/:id/pdf', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+    console.log(`[PDF] Generating PDF for invoice ${id}`);
+
+    // Get invoice details
+    const result = await pool.query(`
+      SELECT 
+        i.id as invoice_id,
+        i.invoice_number,
+        i.organization_id,
+        i.course_request_id,
+        i.created_at as invoice_date,
+        i.due_date,
+        i.amount,
+        i.status,
+        i.students_billed,
+        i.paid_date,
+        o.name as organization_name,
+        o.contact_email,
+        cr.location,
+        ct.name as course_type_name,
+        cr.completed_at as date_completed
+      FROM invoices i
+      JOIN organizations o ON i.organization_id = o.id
+      LEFT JOIN course_requests cr ON i.course_request_id = cr.id
+      LEFT JOIN class_types ct ON cr.course_type_id = ct.id
+      WHERE i.id = $1
+    `, [id]);
+
+    if (result.rows.length === 0) {
+      console.log(`[PDF] Invoice ${id} not found`);
+      throw new AppError(404, errorCodes.RESOURCE_NOT_FOUND, 'Invoice not found');
+    }
+
+    const invoice = result.rows[0];
+    console.log(`[PDF] Generating PDF for invoice ${invoice.invoice_number}`);
+    
+    const pdfBuffer = await PDFService.generateInvoicePDF(invoice);
+    console.log(`[PDF] PDF generated successfully, size: ${pdfBuffer.length} bytes`);
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="Invoice-${invoice.invoice_number}.pdf"`);
+    res.setHeader('Content-Length', pdfBuffer.length.toString());
+    res.setHeader('Access-Control-Allow-Origin', 'http://localhost:5173');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    res.setHeader('Access-Control-Expose-Headers', 'Content-Disposition, Content-Length, Content-Type');
+    res.send(pdfBuffer);
+
+  } catch (error) {
+    console.error('Error generating PDF:', error);
+    throw error;
+  }
+}));
+
+// Preview invoice HTML
+router.get('/accounting/invoices/:id/preview', asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const { id } = req.params;
+
+    // Get invoice details
+    const result = await pool.query(`
+      SELECT 
+        i.id as invoice_id,
+        i.invoice_number,
+        i.organization_id,
+        i.course_request_id,
+        i.created_at as invoice_date,
+        i.due_date,
+        i.amount,
+        i.status,
+        i.students_billed,
+        i.paid_date,
+        o.name as organization_name,
+        o.contact_email,
+        cr.location,
+        ct.name as course_type_name,
+        cr.completed_at as date_completed
+      FROM invoices i
+      JOIN organizations o ON i.organization_id = o.id
+      LEFT JOIN course_requests cr ON i.course_request_id = cr.id
+      LEFT JOIN class_types ct ON cr.course_type_id = ct.id
+      WHERE i.id = $1
+    `, [id]);
+
+    if (result.rows.length === 0) {
+      throw new AppError(404, errorCodes.RESOURCE_NOT_FOUND, 'Invoice not found');
+    }
+
+    const invoice = result.rows[0];
+    const html = PDFService.getInvoicePreviewHTML(invoice);
+
+    res.setHeader('Content-Type', 'text/html');
+    res.send(html);
+
+  } catch (error) {
+    console.error('Error generating preview:', error);
+    throw error;
+  }
+}));
+
 // Revenue report endpoint
 router.get('/accounting/reports/revenue', asyncHandler(async (req: Request, res: Response) => {
   try {
@@ -2038,10 +2184,10 @@ router.get('/accounting/reports/revenue', asyncHandler(async (req: Request, res:
       ),
       invoices_by_month AS (
         SELECT 
-          TO_CHAR(DATE_TRUNC('month', invoice_date), 'YYYY-MM') as month,
+          TO_CHAR(DATE_TRUNC('month', COALESCE(invoice_date, created_at)), 'YYYY-MM') as month,
           COALESCE(SUM(amount), 0) as total_invoiced
         FROM invoices
-        WHERE EXTRACT(YEAR FROM invoice_date) = EXTRACT(YEAR FROM $1::date)
+        WHERE EXTRACT(YEAR FROM COALESCE(invoice_date, created_at)) = EXTRACT(YEAR FROM $1::date)
         GROUP BY TO_CHAR(DATE_TRUNC('month', invoice_date), 'YYYY-MM')
       ),
       payments_by_month AS (
@@ -2985,4 +3131,454 @@ router.put('/courses/:courseId/ready-for-billing', asyncHandler(async (req: Requ
   }
 }));
 
-export default router; 
+// Organization Bills Payable - View invoices for organization
+router.get('/organization/invoices', authenticateToken, asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    
+    if (user.role !== 'organization') {
+      throw new AppError(403, errorCodes.AUTH_INSUFFICIENT_PERMISSIONS, 'Access denied. Organization role required.');
+    }
+
+    const { status, page = 1, limit = 10, sort_by = 'created_at', sort_order = 'desc' } = req.query;
+    const offset = (Number(page) - 1) * Number(limit);
+
+    let whereClause = 'WHERE i.organization_id = $1 AND i.posted_to_org = TRUE';
+    const queryParams: any[] = [user.organizationId];
+    let paramCount = 1;
+
+    if (status) {
+      paramCount++;
+      whereClause += ` AND i.status = $${paramCount}`;
+      queryParams.push(status);
+    }
+
+    const orderClause = `ORDER BY i.${sort_by} ${sort_order.toString().toUpperCase()}`;
+
+    const result = await pool.query(`
+      SELECT 
+        i.id as invoice_id,
+        i.invoice_number,
+        i.created_at as invoice_date,
+        i.due_date,
+        i.amount,
+        i.status,
+        i.students_billed,
+        i.paid_date,
+        cr.location,
+        ct.name as course_type_name,
+        cr.completed_at as course_date,
+        cr.id as course_request_id,
+        COALESCE(SUM(p.amount), 0) as amount_paid,
+        (i.amount - COALESCE(SUM(p.amount), 0)) as balance_due
+      FROM invoices i
+      LEFT JOIN course_requests cr ON i.course_request_id = cr.id
+      LEFT JOIN class_types ct ON cr.course_type_id = ct.id
+      LEFT JOIN payments p ON i.id = p.invoice_id
+      ${whereClause}
+      GROUP BY i.id, cr.id, ct.id
+      ${orderClause}
+      LIMIT $${paramCount + 1} OFFSET $${paramCount + 2}
+    `, [...queryParams, Number(limit), offset]);
+
+    // Get total count for pagination
+    const countResult = await pool.query(`
+      SELECT COUNT(DISTINCT i.id) as total
+      FROM invoices i
+      LEFT JOIN course_requests cr ON i.course_request_id = cr.id
+      ${whereClause}
+    `, queryParams);
+
+    const total = parseInt(countResult.rows[0].total);
+    const totalPages = Math.ceil(total / Number(limit));
+
+    res.json({
+      success: true,
+      data: {
+        invoices: result.rows,
+        pagination: {
+          current_page: Number(page),
+          total_pages: totalPages,
+          total_records: total,
+          per_page: Number(limit)
+        }
+      }
+    });
+
+  } catch (error) {
+    console.error('[Organization Invoices] Error:', error);
+    throw error;
+  }
+}));
+
+// Organization Bills Payable - Get invoice details
+router.get('/organization/invoices/:id', authenticateToken, asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { id } = req.params;
+    
+    if (user.role !== 'organization') {
+      throw new AppError(403, errorCodes.AUTH_INSUFFICIENT_PERMISSIONS, 'Access denied. Organization role required.');
+    }
+
+    const result = await pool.query(`
+      SELECT 
+        i.id as invoice_id,
+        i.invoice_number,
+        i.created_at as invoice_date,
+        i.due_date,
+        i.amount,
+        i.status,
+        i.students_billed,
+        i.paid_date,
+        o.name as organization_name,
+        o.contact_email,
+        o.phone,
+        o.address,
+        cr.location,
+        ct.name as course_type_name,
+        cr.completed_at as course_date,
+        cr.id as course_request_id,
+        COALESCE(SUM(p.amount), 0) as amount_paid,
+        (i.amount - COALESCE(SUM(p.amount), 0)) as balance_due
+      FROM invoices i
+      JOIN organizations o ON i.organization_id = o.id
+      LEFT JOIN course_requests cr ON i.course_request_id = cr.id
+      LEFT JOIN class_types ct ON cr.course_type_id = ct.id
+      LEFT JOIN payments p ON i.id = p.invoice_id
+      WHERE i.id = $1 AND i.organization_id = $2
+      GROUP BY i.id, o.id, cr.id, ct.id
+    `, [id, user.organizationId]);
+
+    if (result.rows.length === 0) {
+      throw new AppError(404, errorCodes.RESOURCE_NOT_FOUND, 'Invoice not found');
+    }
+
+    // Get payment history
+    const paymentsResult = await pool.query(`
+      SELECT 
+        id,
+        amount,
+        payment_date,
+        payment_method,
+        reference_number,
+        notes,
+        created_at
+      FROM payments
+      WHERE invoice_id = $1
+      ORDER BY payment_date DESC
+    `, [id]);
+
+    const invoice = result.rows[0];
+    invoice.payments = paymentsResult.rows;
+
+    res.json({
+      success: true,
+      data: invoice
+    });
+
+  } catch (error) {
+    console.error('[Organization Invoice Details] Error:', error);
+    throw error;
+  }
+}));
+
+// Organization Bills Payable - Submit payment information
+router.post('/organization/invoices/:id/payment-submission', authenticateToken, asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    const { id } = req.params;
+    const { 
+      payment_method, 
+      reference_number, 
+      payment_date, 
+      amount, 
+      notes,
+      payment_proof_url 
+    } = req.body;
+    
+    if (user.role !== 'organization') {
+      throw new AppError(403, errorCodes.AUTH_INSUFFICIENT_PERMISSIONS, 'Access denied. Organization role required.');
+    }
+
+    if (!amount || amount <= 0) {
+      throw new AppError(400, errorCodes.VALIDATION_ERROR, 'Valid payment amount is required');
+    }
+
+    // Verify invoice belongs to organization
+    const invoiceResult = await pool.query(`
+      SELECT id, amount, status, organization_id
+      FROM invoices 
+      WHERE id = $1 AND organization_id = $2
+    `, [id, user.organizationId]);
+
+    if (invoiceResult.rows.length === 0) {
+      throw new AppError(404, errorCodes.RESOURCE_NOT_FOUND, 'Invoice not found');
+    }
+
+    const client = await pool.connect();
+    
+    try {
+      await client.query('BEGIN');
+
+      // Record payment submission (pending verification)
+      const paymentResult = await client.query(`
+        INSERT INTO payments (
+          invoice_id, 
+          amount, 
+          payment_date, 
+          payment_method, 
+          reference_number, 
+          notes,
+          status,
+          submitted_by_org_at
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, 'pending_verification', NOW())
+        RETURNING *
+      `, [id, amount, payment_date || new Date(), payment_method, reference_number, notes]);
+
+      // Update invoice status to indicate payment submitted
+      await client.query(`
+        UPDATE invoices 
+        SET status = 'payment_submitted', updated_at = NOW()
+        WHERE id = $1
+      `, [id]);
+
+      await client.query('COMMIT');
+
+      res.json({
+        success: true,
+        message: 'Payment submission recorded successfully. It will be verified by accounting.',
+        data: paymentResult.rows[0]
+      });
+
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+
+  } catch (error) {
+    console.error('[Organization Payment Submission] Error:', error);
+    throw error;
+  }
+}));
+
+// Organization Bills Payable - Dashboard summary
+router.get('/organization/billing-summary', authenticateToken, asyncHandler(async (req: Request, res: Response) => {
+  try {
+    const user = (req as any).user;
+    
+    if (user.role !== 'organization') {
+      throw new AppError(403, errorCodes.AUTH_INSUFFICIENT_PERMISSIONS, 'Access denied. Organization role required.');
+    }
+
+    const result = await pool.query(`
+      SELECT 
+        COUNT(*) as total_invoices,
+        COUNT(CASE WHEN status = 'pending' THEN 1 END) as pending_invoices,
+        COUNT(CASE WHEN status = 'overdue' THEN 1 END) as overdue_invoices,
+        COUNT(CASE WHEN status = 'paid' THEN 1 END) as paid_invoices,
+        COUNT(CASE WHEN status = 'payment_submitted' THEN 1 END) as payment_submitted,
+        COALESCE(SUM(amount), 0) as total_amount,
+        COALESCE(SUM(CASE WHEN status = 'pending' THEN amount ELSE 0 END), 0) as pending_amount,
+        COALESCE(SUM(CASE WHEN status = 'overdue' THEN amount ELSE 0 END), 0) as overdue_amount,
+        COALESCE(SUM(CASE WHEN status = 'paid' THEN amount ELSE 0 END), 0) as paid_amount
+      FROM invoices
+      WHERE organization_id = $1 AND posted_to_org = TRUE
+    `, [user.organizationId]);
+
+    // Get recent invoices
+    const recentResult = await pool.query(`
+      SELECT 
+        i.id as invoice_id,
+        i.invoice_number,
+        i.created_at as invoice_date,
+        i.due_date,
+        i.amount,
+        i.status,
+        ct.name as course_type_name,
+        cr.location
+      FROM invoices i
+      LEFT JOIN course_requests cr ON i.course_request_id = cr.id
+      LEFT JOIN class_types ct ON cr.course_type_id = ct.id
+      WHERE i.organization_id = $1 AND i.posted_to_org = TRUE
+      ORDER BY i.created_at DESC
+      LIMIT 5
+    `, [user.organizationId]);
+
+    const summary = result.rows[0];
+    summary.recent_invoices = recentResult.rows;
+
+            res.json({
+          success: true,
+          data: summary
+        });
+
+      } catch (error) {
+        console.error('[Organization Billing Summary] Error:', error);
+        throw error;
+      }
+    }));
+
+    // Accounting - Get pending payment verifications
+    router.get('/accounting/payment-verifications', authenticateToken, asyncHandler(async (req: Request, res: Response) => {
+      try {
+        const user = (req as any).user;
+        
+        if (user.role !== 'accountant' && user.role !== 'admin') {
+          throw new AppError(403, errorCodes.AUTH_INSUFFICIENT_PERMISSIONS, 'Access denied. Accountant role required.');
+        }
+
+        const result = await pool.query(`
+          SELECT 
+            p.id as payment_id,
+            p.amount,
+            p.payment_date,
+            p.payment_method,
+            p.reference_number,
+            p.notes,
+            p.submitted_by_org_at,
+            i.id as invoice_id,
+            i.invoice_number,
+            o.name as organization_name,
+            o.contact_email
+          FROM payments p
+          JOIN invoices i ON p.invoice_id = i.id
+          JOIN organizations o ON i.organization_id = o.id
+          WHERE p.status = 'pending_verification'
+          ORDER BY p.submitted_by_org_at DESC
+        `);
+
+        res.json({
+          success: true,
+          data: {
+            payments: result.rows
+          }
+        });
+
+      } catch (error) {
+        console.error('[Payment Verifications] Error:', error);
+        throw error;
+      }
+    }));
+
+    // Accounting - Verify payment (approve/reject)
+    router.post('/accounting/payments/:id/verify', authenticateToken, asyncHandler(async (req: Request, res: Response) => {
+      try {
+        const user = (req as any).user;
+        const { id } = req.params;
+        const { action, notes } = req.body; // action: 'approve' or 'reject'
+        
+        if (user.role !== 'accountant' && user.role !== 'admin') {
+          throw new AppError(403, errorCodes.AUTH_INSUFFICIENT_PERMISSIONS, 'Access denied. Accountant role required.');
+        }
+
+        if (!action || !['approve', 'reject'].includes(action)) {
+          throw new AppError(400, errorCodes.VALIDATION_ERROR, 'Valid action (approve/reject) is required');
+        }
+
+        if (action === 'reject' && !notes?.trim()) {
+          throw new AppError(400, errorCodes.VALIDATION_ERROR, 'Notes are required when rejecting a payment');
+        }
+
+        const client = await pool.connect();
+        
+        try {
+          await client.query('BEGIN');
+
+          // Get payment and invoice details
+          const paymentResult = await client.query(`
+            SELECT p.*, i.organization_id, i.amount as invoice_amount
+            FROM payments p
+            JOIN invoices i ON p.invoice_id = i.id
+            WHERE p.id = $1 AND p.status = 'pending_verification'
+          `, [id]);
+
+          if (paymentResult.rows.length === 0) {
+            throw new AppError(404, errorCodes.RESOURCE_NOT_FOUND, 'Payment not found or already processed');
+          }
+
+          const payment = paymentResult.rows[0];
+
+          if (action === 'approve') {
+            // Approve payment
+            await client.query(`
+              UPDATE payments 
+              SET status = 'verified', 
+                  verified_by_accounting_at = NOW(),
+                  notes = COALESCE(notes, '') || CASE WHEN notes IS NOT NULL AND notes != '' THEN E'\n\n' ELSE '' END || $2
+              WHERE id = $1
+            `, [id, `Verified by ${user.username}: ${notes || 'Payment approved'}`]);
+
+            // Check if invoice is fully paid
+            const totalPaidResult = await client.query(`
+              SELECT COALESCE(SUM(amount), 0) as total_paid
+              FROM payments
+              WHERE invoice_id = $1 AND status = 'verified'
+            `, [payment.invoice_id]);
+
+            const totalPaid = parseFloat(totalPaidResult.rows[0].total_paid);
+            const invoiceAmount = parseFloat(payment.invoice_amount);
+
+            // Update invoice status if fully paid
+            if (totalPaid >= invoiceAmount) {
+              await client.query(`
+                UPDATE invoices 
+                SET status = 'paid', paid_date = NOW(), updated_at = NOW()
+                WHERE id = $1
+              `, [payment.invoice_id]);
+            } else {
+              // Partially paid
+              await client.query(`
+                UPDATE invoices 
+                SET status = 'partial_payment', updated_at = NOW()
+                WHERE id = $1
+              `, [payment.invoice_id]);
+            }
+
+          } else {
+            // Reject payment
+            await client.query(`
+              UPDATE payments 
+              SET status = 'rejected',
+                  verified_by_accounting_at = NOW(),
+                  notes = COALESCE(notes, '') || CASE WHEN notes IS NOT NULL AND notes != '' THEN E'\n\n' ELSE '' END || $2
+              WHERE id = $1
+            `, [id, `Rejected by ${user.username}: ${notes}`]);
+
+            // Reset invoice status to pending
+            await client.query(`
+              UPDATE invoices 
+              SET status = 'pending', updated_at = NOW()
+              WHERE id = $1
+            `, [payment.invoice_id]);
+          }
+
+          await client.query('COMMIT');
+
+          res.json({
+            success: true,
+            message: `Payment ${action}d successfully`,
+            data: {
+              action,
+              payment_id: id,
+              invoice_id: payment.invoice_id
+            }
+          });
+
+        } catch (error) {
+          await client.query('ROLLBACK');
+          throw error;
+        } finally {
+          client.release();
+        }
+
+      } catch (error) {
+        console.error('[Payment Verification] Error:', error);
+        throw error;
+      }
+    }));
+
+    export default router; 
