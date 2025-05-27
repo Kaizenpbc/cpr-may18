@@ -1682,14 +1682,16 @@ router.get('/accounting/billing-queue', asyncHandler(async (req: Request, res: R
         COALESCE(cp.price_per_student, 50.00) as rate_per_student,
         (SELECT COUNT(*) FROM course_students cs WHERE cs.course_request_id = cr.id) * COALESCE(cp.price_per_student, 50.00) as total_amount,
         u.username as instructor_name,
-        cr.completed_at as ready_for_billing_at
+        cr.ready_for_billing_at
       FROM course_requests cr
       JOIN organizations o ON cr.organization_id = o.id
       JOIN class_types ct ON cr.course_type_id = ct.id
       LEFT JOIN course_pricing cp ON cr.organization_id = cp.organization_id AND cr.course_type_id = cp.course_type_id AND COALESCE(cp.is_active, true) = true
       LEFT JOIN users u ON cr.instructor_id = u.id
       WHERE cr.status = 'completed'
-      ORDER BY cr.completed_at DESC
+      AND cr.ready_for_billing = true
+      AND cr.id NOT IN (SELECT course_id FROM invoices WHERE course_id IS NOT NULL)
+      ORDER BY cr.ready_for_billing_at DESC
     `);
 
     res.json({
