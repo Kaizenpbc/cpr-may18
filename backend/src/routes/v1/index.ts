@@ -1751,27 +1751,20 @@ router.post('/accounting/invoices', asyncHandler(async (req: Request, res: Respo
         INSERT INTO invoices (
           invoice_number,
           organization_id,
-          invoice_date,
-          due_date,
+          course_request_id,
           amount,
+          students_billed,
           status,
-          course_type_name,
-          location,
-          date_completed,
-          students_attendance,
-          rate_per_student
+          due_date
         )
-        VALUES ($1, $2, CURRENT_DATE, CURRENT_DATE + INTERVAL '30 days', $3, 'pending', $4, $5, $6, $7, $8)
+        VALUES ($1, $2, $3, $4, $5, 'pending', CURRENT_DATE + INTERVAL '30 days')
         RETURNING *
       `, [
         invoiceNumber,
         course.organization_id,
+        courseId,
         totalAmount,
-        course.course_type_name,
-        course.location,
-        course.completed_at,
-        course.students_attended,
-        course.rate_per_student
+        course.students_attended
       ]);
 
       await client.query('COMMIT');
@@ -1803,19 +1796,18 @@ router.get('/accounting/invoices', asyncHandler(async (req: Request, res: Respon
         i.id as invoice_id,
         i.invoice_number,
         i.organization_id,
-        i.invoice_date,
+        i.course_request_id,
+        i.created_at as invoice_date,
         i.due_date,
         i.amount,
         i.status,
-        i.course_type_name,
-        i.location,
-        i.date_completed,
-        i.students_attendance,
-        i.rate_per_student,
-        i.notes,
-        i.email_sent_at,
+        i.students_billed,
+        i.paid_date,
         o.name as organization_name,
         o.contact_email,
+        cr.location,
+        ct.name as course_type_name,
+        cr.completed_at as date_completed,
         COALESCE(SUM(p.amount), 0) as paid_to_date,
         i.amount - COALESCE(SUM(p.amount), 0) as balance_due,
         CASE 
@@ -1832,12 +1824,13 @@ router.get('/accounting/invoices', asyncHandler(async (req: Request, res: Respon
         END as aging_bucket
       FROM invoices i
       JOIN organizations o ON i.organization_id = o.id
+      LEFT JOIN course_requests cr ON i.course_request_id = cr.id
+      LEFT JOIN class_types ct ON cr.course_type_id = ct.id
       LEFT JOIN payments p ON i.id = p.invoice_id
-      GROUP BY i.id, i.invoice_number, i.organization_id, i.invoice_date, 
-               i.due_date, i.amount, i.status, i.course_type_name, i.location, 
-               i.date_completed, i.students_attendance, i.rate_per_student, i.notes, 
-               i.email_sent_at, o.name, o.contact_email
-      ORDER BY i.invoice_date DESC
+      GROUP BY i.id, i.invoice_number, i.organization_id, i.course_request_id, i.created_at, 
+               i.due_date, i.amount, i.status, i.students_billed, i.paid_date, 
+               o.name, o.contact_email, cr.location, ct.name, cr.completed_at
+      ORDER BY i.created_at DESC
     `);
 
     res.json({
